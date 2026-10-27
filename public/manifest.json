@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "BOSS 简历本地档案",
+  "version": "0.2.0",
+  "description": "在浏览器本地管理 BOSS 在线简历的多个草稿版本。",
+  "permissions": ["storage", "tabs", "scripting"],
+  "host_permissions": ["https://*.zhipin.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://*.zhipin.com/*"],
+      "js": ["content/networkCapture.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_title": "打开 BOSS 简历本地档案"
+  },
+  "background": {
+    "service_worker": "background/serviceWorker.js",
+    "type": "module"
+  }
+}
