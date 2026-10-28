@@ -4,13 +4,20 @@
   "version": "0.2.0",
   "description": "在浏览器本地管理 BOSS 在线简历的多个草稿版本。",
   "permissions": ["storage", "tabs", "scripting"],
-  "host_permissions": ["https://*.zhipin.com/*"],
+  "host_permissions": ["https://*.zhipin.com/*", "https://api.deepseek.com/*"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
   "content_scripts": [
     {
       "matches": ["https://*.zhipin.com/*"],
       "js": ["content/networkCapture.js"],
       "run_at": "document_start",
       "world": "MAIN",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://*.zhipin.com/*"],
+      "js": ["content/captureBridge.js"],
+      "run_at": "document_start",
       "all_frames": false
     }
   ],

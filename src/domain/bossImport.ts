@@ -14,6 +14,7 @@ export type BossResumeContent = Pick<
   | "socialProfiles"
   | "volunteerExperiences"
   | "jobSearchStatus"
+  | "sectionOrder"
 >;
 
 export interface BossImportGroupSummary {
@@ -23,35 +24,23 @@ export interface BossImportGroupSummary {
 
 export interface BossImportReport {
   fetchedAt: string;
-  /** false 表示响应结构无法识别：保留原始快照，但不允许写回。 */
-  recognized: boolean;
   readGroups: BossImportGroupSummary[];
   missingGroups: string[];
   warnings: string[];
 }
 
 export interface BossImportResult {
+  /** 直聘简历里的简历名称，新建本地简历时用作标题。 */
+  cvName: string;
+  /** 直聘简历的样式模板 ID。 */
+  templateId?: string;
   content: BossResumeContent;
   unmappedFields?: Record<string, unknown>;
   remoteSnapshot: BossRemoteSnapshot;
   report: BossImportReport;
 }
 
-function pad(value: number): string {
-  return String(value).padStart(2, "0");
-}
-
-export function bossImportTitle(fetchedAt: string): string {
-  const date = new Date(fetchedAt);
-  if (Number.isNaN(date.getTime())) return "BOSS 简历";
-  return `BOSS 简历 - ${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function syncStateOf(result: BossImportResult): BossResumeDocument["syncState"] {
-  return result.report.recognized ? "synced" : "unsupported";
-}
-
-/** 用一次 BOSS 读取结果新建本地简历。 */
+/** 用一次直聘简历读取结果新建本地简历。 */
 export function createResumeFromBossImport(
   result: BossImportResult,
   options: ResumeFactoryOptions = {},
@@ -60,16 +49,18 @@ export function createResumeFromBossImport(
   return {
     ...base,
     ...structuredClone(result.content),
-    title: bossImportTitle(result.report.fetchedAt),
+    title: result.cvName,
     source: "boss-import",
     lastBossFetchedAt: result.report.fetchedAt,
-    syncState: syncStateOf(result),
+    syncState: "synced",
+    bossCvId: result.remoteSnapshot.cvId,
+    bossTemplateId: result.templateId,
     remoteSnapshot: structuredClone(result.remoteSnapshot),
     unmappedFields: result.unmappedFields ? structuredClone(result.unmappedFields) : undefined,
   };
 }
 
-/** 用 BOSS 数据覆盖已绑定简历的业务字段，保留本地 ID、名称、来源和写回记录。 */
+/** 用直聘简历数据刷新已绑定简历的业务字段（只改本地），保留本地 ID、名称、来源和上传记录。 */
 export function refreshResumeFromBossImport(
   target: BossResumeDocument,
   result: BossImportResult,
@@ -80,17 +71,23 @@ export function refreshResumeFromBossImport(
     ...structuredClone(result.content),
     updatedAt: typeof now === "string" ? now : now.toISOString(),
     lastBossFetchedAt: result.report.fetchedAt,
-    syncState: syncStateOf(result),
+    syncState: "synced",
+    bossCvId: result.remoteSnapshot.cvId,
+    bossTemplateId: result.templateId ?? target.bossTemplateId,
     remoteSnapshot: structuredClone(result.remoteSnapshot),
     unmappedFields: result.unmappedFields ? structuredClone(result.unmappedFields) : undefined,
   };
 }
 
-export function isBossBoundResume(item: Pick<ResumeIndexItem, "lastBossFetchedAt" | "lastBossWrittenAt">): boolean {
-  return Boolean(item.lastBossFetchedAt || item.lastBossWrittenAt);
+/**
+ * 已绑定 = 曾从直聘简历导入，可用直聘简历数据刷新。
+ * 上传是在直聘简历新增一份简历，不建立绑定，因此不计入。
+ */
+export function isBossBoundResume(item: Pick<ResumeIndexItem, "lastBossFetchedAt">): boolean {
+  return Boolean(item.lastBossFetchedAt);
 }
 
-/** 刷新前需要用户确认：存在尚未写回 BOSS 的本地修改。 */
-export function hasUnwrittenBossChanges(resume: Pick<BossResumeDocument, "syncState">): boolean {
-  return resume.syncState === "local-dirty" || resume.syncState === "write-failed";
+/** 刷新前需要用户确认：上次获取后有本地修改（刷新会丢掉这些修改）。 */
+export function hasLocalChangesSinceFetch(resume: Pick<BossResumeDocument, "syncState">): boolean {
+  return resume.syncState === "local-dirty" || resume.syncState === "upload-failed";
 }

@@ -1,0 +1,108 @@
+import { diffResumes, type ResumeFieldDiff } from "../domain/diff";
+import type { BossResumeDocument } from "../domain/types";
+import { AiError, chatJson, type ChatMessage } from "./deepseek";
+import { applyAiResume } from "./resumePatch";
+import type { AiSettings } from "./settings";
+
+export interface AiTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface AiEditResult {
+  reply: string;
+  /** AI 改过的整份简历；没有改动时为 undefined。 */
+  resume?: BossResumeDocument;
+  changes: ResumeFieldDiff[];
+}
+
+/** 只带最近几轮对话，控制请求体积；简历本身每次都完整附上。 */
+const HISTORY_LIMIT = 12;
+
+/** 交给 AI 的可编辑内容：去掉头像、同步状态、远程快照等与写作无关的字段。 */
+export function editableView(resume: BossResumeDocument): Record<string, unknown> {
+  const { avatar: _avatar, ...profile } = resume.profile;
+  return {
+    title: resume.title,
+    profile,
+    advantage: resume.advantage,
+    jobIntent: resume.jobIntent,
+    workExperiences: resume.workExperiences,
+    projects: resume.projects,
+    educations: resume.educations,
+    certificates: resume.certificates,
+    socialProfiles: resume.socialProfiles,
+    volunteerExperiences: resume.volunteerExperiences,
+    jobSearchStatus: resume.jobSearchStatus,
+  };
+}
+
+function systemPrompt(resume: BossResumeDocument): string {
+  return [
+    "你是资深的中文简历顾问，帮用户修改一份要上传到 BOSS 直聘的在线简历。",
+    "",
+    "当前简历（json）：",
+    JSON.stringify(editableView(resume), null, 2),
+    "",
+    "修改规则：",
+    "- 日期一律用 YYYY-MM；isCurrent 为 true 表示「至今」，此时不要填 endDate。",
+    "- 已有条目的 localId 必须原样保留；新增条目不写 localId；删除条目就从数组里去掉。",
+    "- gender 只能是 male / female / unknown；skills、cities、positions、industries 是字符串数组。",
+    "- 必填：简历名称、姓名；工作经历的公司名称、职位名称、开始时间；项目经历的项目名称、开始时间；教育经历的学校名称。",
+    "- 不要编造用户没提供的公司、学校、时间、数字成果；信息不够时在 reply 里向用户提问，resume 返回 null。",
+    "- 用户只要求改某一部分时，其他部分保持原样。",
+    "- 文字面向招聘方：动词开头、突出职责和可量化成果，分点内容用换行分隔。",
+    "",
+    "只输出一个 json 对象，格式：",
+    '{"reply": "用中文简要说明改了什么，或回答用户的问题", "resume": 修改后的完整简历对象（结构与上面相同），不需要修改时为 null}',
+  ].join("\n");
+}
+
+export async function askResumeAssistant(
+  settings: AiSettings,
+  resume: BossResumeDocument,
+  history: AiTurn[],
+  input: string,
+  signal?: AbortSignal,
+): Promise<AiEditResult> {
+  const messages: ChatMessage[] = [
+    { role: "system", content: systemPrompt(resume) },
+    ...history.slice(-HISTORY_LIMIT),
+    { role: "user", content: input },
+  ];
+  const raw = await chatJson(settings, messages, { signal });
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new AiError("AI 返回的格式与约定不符，请重试");
+  const { reply, resume: patch } = raw as { reply?: unknown; resume?: unknown };
+  const text = typeof reply === "string" && reply.trim() ? reply.trim() : "";
+
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+    return { reply: text || "这次没有修改简历。", changes: [] };
+  }
+  const next = applyAiResume(resume, patch as Record<string, unknown>);
+  const changes = diffResumes(resume, next);
+  return { reply: text || (changes.length ? "已按要求修改。" : "这次没有修改简历。"), resume: changes.length ? next : undefined, changes };
+}
+
+const SECTION_LABEL: Record<string, string> = {
+  title: "基本资料",
+  profile: "基本资料",
+  advantage: "个人优势",
+  jobIntent: "求职意向",
+  workExperiences: "工作经历",
+  projects: "项目经历",
+  educations: "教育经历",
+  certificates: "资格证书",
+  socialProfiles: "社交主页",
+  volunteerExperiences: "志愿者服务",
+  jobSearchStatus: "求职状态",
+};
+
+/** 把字段级差异按模块汇总成「工作经历 · 3 处」。 */
+export function summarizeChanges(changes: ResumeFieldDiff[]): string[] {
+  const counts = new Map<string, number>();
+  for (const change of changes) {
+    const label = SECTION_LABEL[change.path.split(/[.[]/, 1)[0]] ?? "其他";
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return [...counts].map(([label, count]) => `${label} · ${count} 处`);
+}

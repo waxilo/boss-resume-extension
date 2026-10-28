@@ -22,7 +22,7 @@ function toIndexItem(resume: BossResumeDocument): ResumeIndexItem {
     source: resume.source,
     updatedAt: resume.updatedAt,
     lastBossFetchedAt: resume.lastBossFetchedAt,
-    lastBossWrittenAt: resume.lastBossWrittenAt,
+    lastBossUploadedAt: resume.lastBossUploadedAt,
     syncState: resume.syncState,
   };
 }

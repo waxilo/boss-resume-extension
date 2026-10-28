@@ -68,7 +68,9 @@ export function copyResume(
   copy.createdAt = now;
   copy.updatedAt = now;
   delete copy.lastBossFetchedAt;
-  delete copy.lastBossWrittenAt;
+  delete copy.lastBossUploadedAt;
+  // 副本不再绑定原直聘简历，但沿用它的样式模板。
+  delete copy.bossCvId;
   copy.syncState = "unbound";
   delete copy.remoteSnapshot;
 

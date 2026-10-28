@@ -1,7 +1,11 @@
 import type { BossResumeDocument } from "./types";
 
 export interface ResumeValidationIssue {
+  /** 字段路径，如 workExperiences[1].positionName。 */
   path: string;
+  /** 面向用户的位置，与编辑页模块名一致，如「工作经历 2」。 */
+  location: string;
+  /** 面向用户的问题描述，已包含字段名，如「职位名称为必填项」。 */
   message: string;
 }
 
@@ -13,116 +17,129 @@ export interface ResumeValidationResult {
 const DATE_PATTERN = /^\d{4}-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\d|3[01]))?$/;
 const URL_PATTERN = /^https?:\/\/[^\s]+$/i;
 
-function addRequired(
-  issues: ResumeValidationIssue[],
-  path: string,
-  value: string,
-  label: string,
-): void {
-  if (value.trim().length === 0) {
-    issues.push({ path, message: `${label}为必填项` });
-  }
+/** 把一条校验问题格式化成「位置 · 描述」，供界面直接展示。 */
+export function describeIssue(issue: ResumeValidationIssue): string {
+  return `${issue.location} · ${issue.message}`;
 }
 
 function isValidDate(value: string): boolean {
-  if (!DATE_PATTERN.test(value)) {
-    return false;
-  }
-
-  if (value.length === 7) {
-    return true;
-  }
-
+  if (!DATE_PATTERN.test(value)) return false;
+  if (value.length === 7) return true;
   const [year, month, day] = value.split("-").map(Number);
   const date = new Date(Date.UTC(year, month - 1, day));
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
-function addDateIssue(
-  issues: ResumeValidationIssue[],
-  path: string,
-  value: string | undefined,
-): void {
-  if (value !== undefined && value !== "" && !isValidDate(value)) {
-    issues.push({ path, message: "日期必须为有效的 YYYY-MM 或 YYYY-MM-DD 格式" });
+interface DateField {
+  field: string;
+  value: string | undefined;
+  label: string;
+}
+
+/** 绑定到某个位置（模块 + 序号）的问题收集器，字段路径相对该位置。 */
+class IssueScope {
+  public constructor(
+    private readonly issues: ResumeValidationIssue[],
+    private readonly basePath: string,
+    private readonly location: string,
+  ) {}
+
+  private push(field: string, message: string): void {
+    const path = this.basePath ? `${this.basePath}.${field}` : field;
+    this.issues.push({ path, location: this.location, message });
+  }
+
+  public required(field: string, value: string, label: string): void {
+    if (value.trim().length === 0) this.push(field, `${label}为必填项`);
+  }
+
+  public date({ field, value, label }: DateField): void {
+    if (value !== undefined && value !== "" && !isValidDate(value)) {
+      this.push(field, `${label}必须为有效的 YYYY-MM 或 YYYY-MM-DD 格式`);
+    }
+  }
+
+  public dateRange(start: DateField, end: DateField): void {
+    this.date(start);
+    this.date(end);
+    if (start.value && end.value && start.value > end.value) {
+      this.push(end.field, `${end.label}不能早于${start.label}`);
+    }
+  }
+
+  public url(field: string, value: string | undefined, label: string): void {
+    if (value && !URL_PATTERN.test(value)) this.push(field, `${label}必须是 HTTP 或 HTTPS 地址`);
   }
 }
 
-function addDateRangeIssue(
+function eachItem<T>(
   issues: ResumeValidationIssue[],
-  startPath: string,
-  startDate: string | undefined,
-  endPath: string,
-  endDate: string | undefined,
+  items: T[],
+  key: string,
+  label: string,
+  check: (scope: IssueScope, item: T) => void,
 ): void {
-  addDateIssue(issues, startPath, startDate);
-  addDateIssue(issues, endPath, endDate);
-
-  if (startDate && endDate && startDate > endDate) {
-    issues.push({ path: endPath, message: "结束日期不能早于开始日期" });
-  }
+  items.forEach((item, index) => check(new IssueScope(issues, `${key}[${index}]`, `${label} ${index + 1}`), item));
 }
 
-/** 校验可编辑的 BOSS 简历字段，不对未映射原始字段施加规则。 */
+/** 校验可编辑的 BOSS 简历字段，不对未映射原始字段施加规则。字段名与编辑页标签保持一致。 */
 export function validateResume(resume: BossResumeDocument): ResumeValidationResult {
   const issues: ResumeValidationIssue[] = [];
 
-  addRequired(issues, "title", resume.title, "简历名称");
-  addRequired(issues, "profile.name", resume.profile.name, "姓名");
-  addDateIssue(issues, "profile.workStartDate", resume.profile.workStartDate);
-  addDateIssue(issues, "profile.birthDate", resume.profile.birthDate);
+  const basic = new IssueScope(issues, "", "基本资料");
+  basic.required("title", resume.title, "简历名称");
+  basic.required("profile.name", resume.profile.name, "姓名");
+  basic.date({ field: "profile.workStartDate", value: resume.profile.workStartDate, label: "参加工作时间" });
+  basic.date({ field: "profile.birthDate", value: resume.profile.birthDate, label: "出生年月" });
 
-  resume.workExperiences.forEach((experience, index) => {
-    const path = `workExperiences[${index}]`;
-    addRequired(issues, `${path}.companyName`, experience.companyName, "公司名称");
-    addRequired(issues, `${path}.positionName`, experience.positionName, "职位名称");
-    addRequired(issues, `${path}.startDate`, experience.startDate, "开始日期");
-    addDateRangeIssue(
-      issues,
-      `${path}.startDate`,
-      experience.startDate,
-      `${path}.endDate`,
-      experience.isCurrent ? undefined : experience.endDate,
+  eachItem(issues, resume.workExperiences, "workExperiences", "工作经历", (scope, work) => {
+    scope.required("companyName", work.companyName, "公司名称");
+    scope.required("positionName", work.positionName, "职位名称");
+    scope.required("startDate", work.startDate, "开始时间");
+    scope.dateRange(
+      { field: "startDate", value: work.startDate, label: "开始时间" },
+      { field: "endDate", value: work.isCurrent ? undefined : work.endDate, label: "结束时间" },
     );
   });
 
-  resume.projects.forEach((project, index) => {
-    const path = `projects[${index}]`;
-    addRequired(issues, `${path}.projectName`, project.projectName, "项目名称");
-    addRequired(issues, `${path}.startDate`, project.startDate, "开始日期");
-    addDateRangeIssue(issues, `${path}.startDate`, project.startDate, `${path}.endDate`, project.endDate);
-
-    if (project.link && !URL_PATTERN.test(project.link)) {
-      issues.push({ path: `${path}.link`, message: "项目链接必须是 HTTP 或 HTTPS 地址" });
-    }
+  eachItem(issues, resume.projects, "projects", "项目经历", (scope, project) => {
+    scope.required("projectName", project.projectName, "项目名称");
+    scope.required("startDate", project.startDate, "开始时间");
+    scope.dateRange(
+      { field: "startDate", value: project.startDate, label: "开始时间" },
+      { field: "endDate", value: project.endDate, label: "结束时间" },
+    );
+    scope.url("link", project.link, "项目链接");
   });
 
-  resume.educations.forEach((education, index) => {
-    const path = `educations[${index}]`;
-    addRequired(issues, `${path}.schoolName`, education.schoolName, "学校名称");
-    addDateRangeIssue(issues, `${path}.startDate`, education.startDate, `${path}.endDate`, education.endDate);
+  eachItem(issues, resume.educations, "educations", "教育经历", (scope, education) => {
+    scope.required("schoolName", education.schoolName, "学校名称");
+    scope.dateRange(
+      { field: "startDate", value: education.startDate, label: "开始时间" },
+      { field: "endDate", value: education.endDate, label: "结束时间" },
+    );
   });
 
-  resume.certificates.forEach((certificate, index) => {
-    const path = `certificates[${index}]`;
-    addRequired(issues, `${path}.name`, certificate.name, "证书名称");
-    addDateRangeIssue(issues, `${path}.issueDate`, certificate.issueDate, `${path}.expiryDate`, certificate.expiryDate);
+  eachItem(issues, resume.certificates, "certificates", "资格证书", (scope, certificate) => {
+    scope.required("name", certificate.name, "证书名称");
+    scope.dateRange(
+      { field: "issueDate", value: certificate.issueDate, label: "获得日期" },
+      { field: "expiryDate", value: certificate.expiryDate, label: "到期日期" },
+    );
   });
 
-  resume.socialProfiles.forEach((socialProfile, index) => {
-    const path = `socialProfiles[${index}]`;
-    addRequired(issues, `${path}.platform`, socialProfile.platform, "社交平台");
-    addRequired(issues, `${path}.url`, socialProfile.url, "社交主页链接");
-
-    if (socialProfile.url && !URL_PATTERN.test(socialProfile.url)) {
-      issues.push({ path: `${path}.url`, message: "社交主页链接必须是 HTTP 或 HTTPS 地址" });
-    }
+  eachItem(issues, resume.socialProfiles, "socialProfiles", "社交主页", (scope, social) => {
+    scope.required("platform", social.platform, "平台");
+    scope.required("url", social.url, "链接");
+    scope.url("url", social.url, "链接");
   });
 
-  resume.volunteerExperiences.forEach((experience, index) => {
-    const path = `volunteerExperiences[${index}]`;
-    addRequired(issues, `${path}.organizationName`, experience.organizationName, "志愿服务组织");
-    addDateRangeIssue(issues, `${path}.startDate`, experience.startDate, `${path}.endDate`, experience.endDate);
+  eachItem(issues, resume.volunteerExperiences, "volunteerExperiences", "志愿者服务", (scope, volunteer) => {
+    scope.required("organizationName", volunteer.organizationName, "组织名称");
+    scope.dateRange(
+      { field: "startDate", value: volunteer.startDate, label: "开始时间" },
+      { field: "endDate", value: volunteer.endDate, label: "结束时间" },
+    );
   });
 
   return { valid: issues.length === 0, issues };

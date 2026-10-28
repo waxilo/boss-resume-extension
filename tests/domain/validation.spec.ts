@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createBlankResume } from "../../src/domain/factories";
-import { validateResume } from "../../src/domain/validation";
+import { describeIssue, validateResume } from "../../src/domain/validation";
 
 describe("简历校验", () => {
   it("报告必填项、日期范围和链接格式问题", () => {
@@ -31,6 +31,23 @@ describe("简历校验", () => {
         "socialProfiles[0].url",
       ]),
     );
+  });
+
+  it("问题描述带上模块序号与字段名", () => {
+    const resume = createBlankResume({ createId: () => "resume-1" });
+    resume.title = "Java";
+    resume.profile.name = "张三";
+    resume.workExperiences = [
+      { localId: "work-1", companyName: "甲公司", positionName: "Java", startDate: "2026-01", skills: [] },
+      { localId: "work-2", companyName: "乙公司", positionName: "", startDate: "2023-03", endDate: "2025-12", skills: [] },
+    ];
+
+    const { issues } = validateResume(resume);
+
+    expect(issues).toEqual([
+      { path: "workExperiences[1].positionName", location: "工作经历 2", message: "职位名称为必填项" },
+    ]);
+    expect(issues.map(describeIssue)).toEqual(["工作经历 2 · 职位名称为必填项"]);
   });
 
   it("接受结构完整且日期合法的简历", () => {

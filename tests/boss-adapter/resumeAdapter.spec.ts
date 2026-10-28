@@ -1,103 +1,75 @@
 import { describe, expect, it } from "vitest";
 import { BossResumeAdapter, normalizeMonth } from "../../src/boss/resumeAdapter";
 import { buildStructureSample } from "../../src/boss/structureSample";
-import type { BossCapturedResponse, BossCaptureResult } from "../../src/boss/types";
+import { copyResume, createBlankResume } from "../../src/domain/factories";
 import { createResumeFromBossImport, refreshResumeFromBossImport } from "../../src/domain/bossImport";
-import { createBlankResume } from "../../src/domain/factories";
+import { buildUploadPlan } from "../../src/boss/uploadPlan";
 
-// 合成样本：接口路径与字段名为候选推测值，不代表 BOSS 真实结构。拿到真实结构样本后替换为 fixtures。
-const ok = (path: string, zpData: unknown): BossCapturedResponse => ({ path, status: 200, body: { code: 0, message: "Success", zpData } });
-const fail = (path: string, code: number, message = "m"): BossCapturedResponse => ({ path, status: 200, body: { code, message } });
-const capture = (entries: BossCapturedResponse[], hooked = true): BossCaptureResult => ({ pageUrl: "https://cv.zhipin.com/my-resumes/", hooked, entries });
-
+// 字段名与格式照 2026-10-28 录制的 myresume/query.json 结构；内容为虚构。
 const FETCHED_AT = "2026-10-27T08:00:00.000Z";
+const detail = () => ({
+  advantage: "擅长后端",
+  profileVO: {
+    name: "测试用户", gender: 1, birthday: "1995.06", workDate: "2018.07", locationName: "上海", positionName: "Java",
+    lowSalary: 16, highSalary: 20, applyStatus: "离职-随时到岗", cvName: "Java 简历", templateId: "tpl-a", phone: "13800000000",
+    politicalStatus: 0, nativePlaceName: null,
+  },
+  workExpVOList: [
+    { id: "w1", company: "示例公司", positionName: "Java", startDateStr: "2020.03", endDateStr: "至今", endDate: 0, responsibility: "开发", workPerformance: "" },
+    { id: "w2", company: "前公司", positionName: "Java", startDateStr: "2018.07", endDateStr: "2020.02", endDate: 202002, responsibility: "维护" },
+  ],
+  projectExpVOList: [{ id: "p1", name: "项目甲", roleName: "负责人", startDateStr: "2021.01", endDateStr: "2021.12", description: "描述", performance: "" }],
+  eduExpVOList: [{ id: "e1", school: "示例大学", major: "计算机", degree: 203, degreeName: null, startYear: 2014, endYear: 2018, description: "" }],
+});
 
-describe("BossResumeAdapter.adaptCapture", () => {
-  it("跨多个接口深度查找基本信息、经历与求职期望", () => {
-    const outcome = BossResumeAdapter.adaptCapture(
-      capture([
-        ok("https://cv.zhipin.com/wapi/a/user.json", { user: { name: "测试用户", genderDesc: "男", birthday: "1995.06", workDate: 201807, mysteryFlag: 3 } }),
-        ok("https://cv.zhipin.com/wapi/a/resume.json", {
-          resume: {
-            userDescription: "擅长前端",
-            workExpList: [{ encryptId: "w1", company: "示例公司", positionName: "前端工程师", startDate: "2020-03", endDate: "至今" }],
-            projectExpList: [{ name: "项目甲", roleName: "负责人", startDate: "2021.01" }],
-            eduExpList: [{ school: "示例大学", major: "计算机", degreeName: "本科" }],
-          },
-        }),
-        ok("https://cv.zhipin.com/wapi/a/expect.json", { expectList: [{ positionName: "前端", locationName: "上海", salaryDesc: "20-30K" }, { positionName: "全栈", locationName: "上海" }] }),
-        ok("https://cv.zhipin.com/wapi/a/unrelated.json", { banner: "x" }),
-        fail("https://cv.zhipin.com/wapi/a/other.json", 19),
-      ]),
-      FETCHED_AT,
-    );
-
-    expect(outcome.ok).toBe(true);
-    if (!outcome.ok) return;
-    const { content, unmappedFields, report, remoteSnapshot } = outcome.result;
+describe("BossResumeAdapter.adaptDetail", () => {
+  it("按 query.json 的字段映射", () => {
+    const outcome = BossResumeAdapter.adaptDetail("cv-1", detail(), FETCHED_AT);
+    if (!outcome.ok) throw new Error("unexpected");
+    const { content, cvName, templateId, unmappedFields, remoteSnapshot, report } = outcome.result;
+    expect(cvName).toBe("Java 简历");
+    expect(templateId).toBe("tpl-a");
     expect(content.profile).toMatchObject({ name: "测试用户", gender: "male", birthDate: "1995-06", workStartDate: "2018-07" });
-    expect(content.advantage).toBe("擅长前端");
+    expect(content.advantage).toBe("擅长后端");
+    expect(content.jobIntent).toMatchObject({ cities: ["上海"], positions: ["Java"], salary: "16-20K" });
+    expect(content.jobSearchStatus.status).toBe("离职-随时到岗");
     expect(content.workExperiences[0]).toMatchObject({ localId: "work-boss-w1", companyName: "示例公司", startDate: "2020-03", isCurrent: true });
     expect(content.workExperiences[0].endDate).toBeUndefined();
-    // 项目数组元素里的 name 不能被当成姓名。
-    expect(content.projects[0]).toMatchObject({ projectName: "项目甲", role: "负责人", startDate: "2021-01" });
-    expect(content.educations[0]).toMatchObject({ schoolName: "示例大学", degree: "本科" });
-    expect(content.jobIntent).toMatchObject({ positions: ["前端", "全栈"], cities: ["上海"], salary: "20-30K" });
-    expect(unmappedFields).toEqual({ baseinfo: { mysteryFlag: 3 } });
-    expect(report.recognized).toBe(true);
-    expect(Object.keys(remoteSnapshot.rawData)).not.toContain("https://cv.zhipin.com/wapi/a/unrelated.json");
+    expect(content.workExperiences[1]).toMatchObject({ endDate: "2020-02" });
+    expect(content.workExperiences[1].isCurrent).toBeUndefined();
+    expect(content.projects[0]).toMatchObject({ projectName: "项目甲", role: "负责人", startDate: "2021-01", endDate: "2021-12" });
+    expect(content.educations[0]).toMatchObject({ schoolName: "示例大学", degree: "本科", startDate: "2014-09", endDate: "2018-06" });
+    expect(unmappedFields).toEqual({ profileVO: { phone: "13800000000" } });
+    expect(remoteSnapshot.cvId).toBe("cv-1");
+    expect(report.missingGroups).toEqual([]);
   });
 
-  it("没有捕获到响应时提示刷新或确认页面", () => {
-    const unhooked = BossResumeAdapter.adaptCapture(capture([], false));
-    const empty = BossResumeAdapter.adaptCapture(capture([]));
-    expect(!unhooked.ok && unhooked.error).toMatchObject({ code: "NO_DATA", message: expect.stringContaining("刷新") });
-    expect(!empty.ok && empty.error.code).toBe("NO_DATA");
-  });
-
-  it("无法识别的结构保留快照并标记为不支持写回", () => {
-    const outcome = BossResumeAdapter.adaptCapture(capture([ok("p", { foo: { bar: 1 } })]), FETCHED_AT);
-    expect(outcome.ok).toBe(true);
-    if (!outcome.ok) return;
-    expect(outcome.result.report.recognized).toBe(false);
-    expect(outcome.result.remoteSnapshot.rawData).toEqual({ p: { foo: { bar: 1 } } });
-    expect(createResumeFromBossImport(outcome.result).syncState).toBe("unsupported");
-  });
-
-  it.each([
-    [37, "NOT_LOGGED_IN"],
-    [121, "SECURITY_BLOCKED"],
-    [9, "RATE_LIMITED"],
-  ])("什么都没识别出来时 code=%s 映射为 %s", (code, expected) => {
-    const outcome = BossResumeAdapter.adaptCapture(capture([fail("p", code)]));
-    expect(outcome.ok).toBe(false);
-    if (!outcome.ok) expect(outcome.error.code).toBe(expected);
-  });
-
-  it("有数据时个别接口失败不阻断导入", () => {
-    const outcome = BossResumeAdapter.adaptCapture(capture([ok("a", { name: "测试用户" }), fail("b", 37)]), FETCHED_AT);
-    expect(outcome.ok && outcome.result.content.profile.name).toBe("测试用户");
-  });
-
-  it("数字性别码不猜测含义", () => {
-    const outcome = BossResumeAdapter.adaptCapture(capture([ok("a", { name: "测试用户", gender: 1 })]), FETCHED_AT);
-    expect(outcome.ok && outcome.result.content.profile.gender).toBeUndefined();
-    expect(outcome.ok && outcome.result.unmappedFields).toEqual({ baseinfo: { gender: 1 } });
+  it("缺少 profileVO 时报格式错误", () => {
+    const outcome = BossResumeAdapter.adaptDetail("cv-1", { foo: 1 });
+    expect(!outcome.ok && outcome.error.code).toBe("UNEXPECTED_RESPONSE");
   });
 });
 
 describe("导入到本地简历", () => {
-  it("新建与刷新", () => {
-    const outcome = BossResumeAdapter.adaptCapture(capture([ok("a", { name: "测试用户" })]), FETCHED_AT);
+  const result = () => {
+    const outcome = BossResumeAdapter.adaptDetail("cv-1", detail(), FETCHED_AT);
     if (!outcome.ok) throw new Error("unexpected");
-    const created = createResumeFromBossImport(outcome.result, { createId: () => "r1" });
-    expect(created).toMatchObject({ localId: "r1", source: "boss-import", syncState: "synced", lastBossFetchedAt: FETCHED_AT });
-    expect(created.title).toMatch(/^BOSS 简历 - \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    return outcome.result;
+  };
 
+  it("新建时用直聘简历名称做标题，记下 cvId 与样式模板，上传沿用该模板", () => {
+    const created = createResumeFromBossImport(result(), { createId: () => "r1" });
+    expect(created).toMatchObject({ localId: "r1", title: "Java 简历", source: "boss-import", syncState: "synced", bossCvId: "cv-1", bossTemplateId: "tpl-a" });
+    expect(buildUploadPlan(created).templateId).toBe("tpl-a");
+  });
+
+  it("刷新保留本地标题；复制解除绑定但保留样式模板", () => {
     const target = { ...createBlankResume({ createId: () => "r2" }), title: "我的版本", syncState: "local-dirty" as const };
-    const refreshed = refreshResumeFromBossImport(target, outcome.result, FETCHED_AT);
-    expect(refreshed).toMatchObject({ localId: "r2", title: "我的版本", syncState: "synced" });
-    expect(refreshed.profile.name).toBe("测试用户");
+    const refreshed = refreshResumeFromBossImport(target, result(), FETCHED_AT);
+    expect(refreshed).toMatchObject({ localId: "r2", title: "我的版本", syncState: "synced", bossTemplateId: "tpl-a" });
+    const copy = copyResume(refreshed);
+    expect(copy.bossCvId).toBeUndefined();
+    expect(copy.bossTemplateId).toBe("tpl-a");
   });
 });
 
@@ -105,7 +77,7 @@ describe("工具函数", () => {
   it("normalizeMonth", () => {
     expect(normalizeMonth("2020.3")).toBe("2020-03");
     expect(normalizeMonth("2020年11月")).toBe("2020-11");
-    expect(normalizeMonth(20200315)).toBe("2020-03");
+    expect(normalizeMonth("202003")).toBe("2020-03");
     expect(normalizeMonth("至今")).toBeUndefined();
     expect(normalizeMonth("2020-13")).toBeUndefined();
   });

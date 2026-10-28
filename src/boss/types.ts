@@ -1,25 +1,21 @@
-/** 扩展页 → Service Worker 的读取请求类型。 */
+/** 扩展页 → Service Worker：列出直聘简历（cv.zhipin.com/my-resumes/）里的全部简历。 */
+export const BOSS_LIST_MESSAGE = "boss.list-resumes";
+/** 扩展页 → Service Worker：读取一份直聘简历的详情（参数 cvId）。 */
 export const BOSS_FETCH_MESSAGE = "boss.fetch-resume";
 
-/**
- * 页面内捕获器挂在 window 上的属性名。
- * content/networkCapture.ts 与 boss/pageCapture.ts 都会被注入页面、无法共享导入，需各自写死同一字面量。
- */
-export const BOSS_CAPTURE_GLOBAL = "__bossResumeCapture__";
-
-/** BOSS 页面自己发出的一次 /wapi/ 请求的响应。path 只含 origin + pathname，不含查询串。 */
-export interface BossCapturedResponse {
-  path: string;
-  status: number;
-  body: unknown;
+/** 直聘简历列表（myresume/querylist.json）里的一项，只留选择时要看的字段。 */
+export interface CvResumeSummary {
+  cvId: string;
+  cvName: string;
+  templateId?: string;
+  templateName?: string;
+  /** ISO 时间。 */
+  updatedAt?: string;
 }
 
-export interface BossCaptureResult {
-  /** 只保留 origin + pathname，避免把查询串里的参数带出页面。 */
-  pageUrl: string;
-  /** false：页面在扩展加载前就已打开，捕获脚本未注入。 */
-  hooked: boolean;
-  entries: BossCapturedResponse[];
+export interface CvResumeList {
+  maxCount?: number;
+  resumes: CvResumeSummary[];
 }
 
 export type BossFetchErrorCode =
@@ -40,6 +36,4 @@ export interface BossFetchError {
   detail?: string;
 }
 
-export type BossFetchMessageResponse =
-  | { ok: true; capture: BossCaptureResult }
-  | { ok: false; error: BossFetchError };
+export type BossPageOutcome<T> = { ok: true; data: T } | { ok: false; error: BossFetchError };

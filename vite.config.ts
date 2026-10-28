@@ -13,6 +13,7 @@ export default defineConfig({
         "background/serviceWorker": resolve(import.meta.dirname, "src/background/serviceWorker.ts"),
         // 内容脚本以普通脚本注入，源文件不得有运行时 import，否则会被拆出共享 chunk。
         "content/networkCapture": resolve(import.meta.dirname, "src/content/networkCapture.ts"),
+        "content/captureBridge": resolve(import.meta.dirname, "src/content/captureBridge.ts"),
       },
       output: {
         entryFileNames: "[name].js",
