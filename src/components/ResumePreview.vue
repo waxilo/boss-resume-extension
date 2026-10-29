@@ -6,7 +6,7 @@ import { normalizeSectionOrder, type SectionId } from "../editor/sections";
 const props = defineProps<{ resume: BossResumeDocument }>();
 const emit = defineEmits<{ edit: [section: SectionId] }>();
 
-/** 个人优势 / 工作经历 / 项目经历按左侧菜单的顺序显示。 */
+/** 个人优势 / 工作经历 / 项目经历 / 教育经历按左侧菜单的顺序显示。 */
 const order = computed(() => normalizeSectionOrder(props.resume.sectionOrder));
 
 const GENDER: Record<string, string> = { male: "男", female: "女" };
@@ -106,23 +106,24 @@ const isEmpty = computed(() => {
     <section v-else-if="section === 'projects' && resume.projects.length" class="rp-section">
       <h2>项目经历<button class="rp-edit" type="button" @click="emit('edit', 'projects')">编辑</button></h2>
       <div v-for="item in resume.projects" :key="item.localId" class="rp-item">
-        <div class="rp-item__head"><strong>{{ item.projectName || "未填写项目" }}</strong><time>{{ range(item.startDate, item.endDate) }}</time></div>
+        <div class="rp-item__head"><strong>{{ item.projectName || "未填写项目" }}</strong><time>{{ range(item.startDate, item.endDate, item.isCurrent) }}</time></div>
         <p v-if="item.role || item.link" class="rp-item__sub">{{ item.role }}<a v-if="item.link" :href="item.link" target="_blank" rel="noopener noreferrer">{{ item.link }}</a></p>
         <p v-if="item.description" class="rp-text">{{ item.description }}</p>
         <p v-if="item.achievements" class="rp-text"><b class="rp-label">项目成果</b>{{ item.achievements }}</p>
       </div>
     </section>
-    </template>
 
-    <section v-if="resume.educations.length" class="rp-section">
-      <h2>教育经历</h2>
+    <section v-else-if="section === 'education' && resume.educations.length" class="rp-section">
+      <h2>教育经历<button class="rp-edit" type="button" @click="emit('edit', 'education')">编辑</button></h2>
       <div v-for="item in resume.educations" :key="item.localId" class="rp-item">
-        <div class="rp-item__head"><strong>{{ item.schoolName || "未填写学校" }}</strong><time>{{ range(item.startDate, item.endDate) }}</time></div>
+        <div class="rp-item__head"><strong>{{ item.schoolName || "未填写学校" }}</strong><time>{{ range(item.startDate, item.endDate, item.isCurrent) }}</time></div>
         <p v-if="filled(item.major, item.degree).length" class="rp-item__sub">{{ filled(item.major, item.degree).join(" · ") }}</p>
         <p v-if="item.campusExperience" class="rp-text">{{ item.campusExperience }}</p>
         <p v-if="item.thesis" class="rp-text"><b class="rp-label">论文 / 研究课题</b>{{ item.thesis }}</p>
       </div>
     </section>
+    </template>
+
 
     <section v-if="resume.certificates.length" class="rp-section">
       <h2>资格证书</h2>

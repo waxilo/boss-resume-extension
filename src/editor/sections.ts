@@ -1,5 +1,5 @@
 /** 编辑页的模块定义，编辑表单、左侧菜单与预览共用。求职意向与直聘简历一样并在基本资料里。 */
-export type SectionId = "profile" | "advantage" | "work" | "projects";
+export type SectionId = "profile" | "advantage" | "work" | "projects" | "education";
 
 /** 可拖动排序的模块；基本资料与直聘简历一样固定在最上面。 */
 export type MovableSectionId = Exclude<SectionId, "profile">;
@@ -9,6 +9,7 @@ export const SECTION_LABEL: Record<SectionId, string> = {
   advantage: "个人优势",
   work: "工作经历",
   projects: "项目经历",
+  education: "教育经历",
 };
 
 /** 直聘简历 profileVO.sort 里的模块编码。 */
@@ -16,11 +17,13 @@ export const SECTION_CODE: Record<MovableSectionId, number> = {
   advantage: 1002,
   work: 1003,
   projects: 1005,
+  education: 1006,
 };
 
-export const MOVABLE_SECTIONS: readonly MovableSectionId[] = ["advantage", "work", "projects"];
+/** 默认顺序与直聘简历一致：优势、工作、项目、教育。 */
+export const MOVABLE_SECTIONS: readonly MovableSectionId[] = ["advantage", "work", "projects", "education"];
 
-/** 本地顺序缺失或不完整时按默认顺序补齐，保证三个模块都在且不重复。 */
+/** 本地顺序缺失或不完整时按默认顺序补齐，保证每个模块都在且不重复。 */
 export function normalizeSectionOrder(order?: readonly string[]): MovableSectionId[] {
   const result: MovableSectionId[] = [];
   for (const id of order ?? []) {

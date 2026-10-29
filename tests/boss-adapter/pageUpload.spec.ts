@@ -110,13 +110,34 @@ describe("uploadResumeInPage", () => {
     expect(calls.find((c) => c.path.endsWith("eduexp/save.json"))!.params.get("degree")).toBe("203");
   });
 
-  it("模块顺序写进 profile 的 sort，教育经历等其他模块留在原位", async () => {
+  it("模块顺序写进 profile 的 sort，基本信息等其他模块留在原位", async () => {
     const calls = setup({
       "/wapi/zpcvresume/myresume/query.json": ok({ profileVO: { sort: [1001, 1002, 1006, 1003, 1005] }, workExpVOList: [], projectExpVOList: [], eduExpVOList: [] }),
     });
-    await uploadResumeInPage({ ...plan(), sectionCodes: [1005, 1003, 1002] });
+    await uploadResumeInPage({ ...plan(), sectionCodes: [1005, 1006, 1003, 1002] });
     const profile = calls.find((c) => c.path.endsWith("profile/save.json"))!.params;
     expect(profile.get("sort")).toBe("1001,1005,1006,1003,1002");
+  });
+
+  it("直聘原来没有的模块补在末尾", async () => {
+    const calls = setup({
+      "/wapi/zpcvresume/myresume/query.json": ok({ profileVO: { sort: [1001, 1002, 1003, 1005] }, workExpVOList: [], projectExpVOList: [], eduExpVOList: [] }),
+    });
+    await uploadResumeInPage({ ...plan(), sectionCodes: [1006, 1002, 1003, 1005] });
+    const profile = calls.find((c) => c.path.endsWith("profile/save.json"))!.params;
+    expect(profile.get("sort")).toBe("1001,1006,1002,1003,1005");
+  });
+
+  it("教育经历勾了至今时写 isToday 并留空结束年份", async () => {
+    const calls = setup();
+    const built = plan(0);
+    built.educations = [{ ...built.educations[0], current: true, endYear: undefined }];
+    await uploadResumeInPage(built);
+    const education = calls.find((c) => c.path.endsWith("eduexp/save.json"))!.params;
+    expect(education.get("isToday")).toBe("true");
+    expect(education.get("endYear")).toBe("-1");
+    expect(education.get("endYearStr")).toBe("");
+    expect(education.get("startYear")).toBe("2014");
   });
 
   it("份数已满时不新建", async () => {

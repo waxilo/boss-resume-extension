@@ -52,8 +52,8 @@ export async function uploadResumeInPage(plan: UploadPlan): Promise<BossUploadRe
   };
 
   /**
-   * 直聘简历原有的模块顺序 + 本地的个人优势 / 工作经历 / 项目经历顺序 → profile/save.json 的 sort。
-   * 只在这三个模块原来所占的位置之间换序，基本信息、教育经历等其他模块留在原位；原来没有的补在末尾。
+   * 直聘简历原有的模块顺序 + 本地的个人优势 / 工作经历 / 项目经历 / 教育经历顺序 → profile/save.json 的 sort。
+   * 只在这几个模块原来所占的位置之间换序，基本信息等其他模块留在原位；原来没有的补在末尾。
    */
   const sortOf = (raw: unknown): string => {
     const codes = plan.sectionCodes;
@@ -284,7 +284,7 @@ export async function uploadResumeInPage(plan: UploadPlan): Promise<BossUploadRe
         degree: education.degree,
         majorRanking: 0,
         courseList: "",
-        isToday: false,
+        isToday: education.current,
         startYear: education.startYear ?? -1,
         startYearStr: education.startYear ? String(education.startYear) : "",
         endYear: education.endYear ?? -1,

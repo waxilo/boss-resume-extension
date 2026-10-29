@@ -68,3 +68,16 @@ npm test
 - `content/networkCapture.ts`（MAIN）只在录制开启时，把页面自己发出的 zhipin.com 请求（方法、URL、请求头名、请求体、响应）通过 `postMessage` 交给 `content/captureBridge.ts`（ISOLATED）。桥接脚本再转给 Service Worker。
 - Service Worker（`background/recorder.ts`）先校验消息结构，再用 `boss/recording.ts#sanitizeRecord` 脱敏，结果写入 `chrome.storage.session`。结束录制后清空。
 - 脱敏规则：字符串只留长度；日期、手机号这类数字串只留格式（`9999.99`）；1–3 位数字、0–999 的整数和布尔值保留原值（用作枚举）；路径里像 ID 的段替换为 `{id}`；请求头只留名字；接口返回的 `code` / `message` 原样保留。
+
+## 发布（打 tag 自动构建插件包）
+
+`.github/workflows/release.yml` 在推送 `v*` 标签时自动跑 `npm ci` → `npm test` → `npm run build`，把 `dist/` 打成 `boss-resume-extension-<tag>.zip`（`manifest.json` 在 zip 根目录），挂到对应 Release 上并自动生成 release notes；同时上传一份 Actions artifact。
+
+```bash
+npm version patch   # 或手动改 package.json / public/manifest.json 的 version
+git tag v0.3.0
+git push origin v0.3.0
+```
+
+下载 zip 解压后，在扩展管理页「加载已解压的扩展程序」里选择解压出的目录即可。`workflow_dispatch` 手动触发只产出 artifact，不发布 Release。
+

@@ -72,6 +72,5 @@ onBeforeUnmount(() => sortable?.destroy());
         <span>0{{ index + 2 }}</span>{{ SECTION_LABEL[section] }}<em v-if="issues[section]" class="nav-issue">{{ issues[section]!.length }}</em><i class="item-grip nav-grip" aria-hidden="true"></i>
       </button>
     </div>
-    <p class="nav-tip">按住拖动调整模块顺序，上传时同步到直聘</p>
   </nav>
 </template>

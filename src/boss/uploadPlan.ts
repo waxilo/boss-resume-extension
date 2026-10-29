@@ -50,6 +50,8 @@ export interface UploadEducation {
   degree: number;
   startYear?: number;
   endYear?: number;
+  /** 仍在读，直聘那边勾「至今」，结束年份留空。 */
+  current: boolean;
   description: UploadText;
 }
 
@@ -72,7 +74,7 @@ export interface UploadPlan {
     highSalary: number;
   };
   advantage: UploadText;
-  /** 个人优势 / 工作经历 / 项目经历的模块编码，按本地顺序排列（如 [1003, 1002, 1005]）。 */
+  /** 个人优势 / 工作经历 / 项目经历 / 教育经历的模块编码，按本地顺序排列（如 [1003, 1002, 1005, 1006]）。 */
   sectionCodes: number[];
   works: UploadWork[];
   projects: UploadProject[];
@@ -190,7 +192,8 @@ export function buildUploadPlan(resume: BossResumeDocument): UploadPlan {
       major: education.major?.trim() ?? "",
       degree,
       startYear: yearOf(education.startDate),
-      endYear: yearOf(education.endDate),
+      endYear: education.isCurrent ? undefined : yearOf(education.endDate),
+      current: Boolean(education.isCurrent),
       description: toUploadText(campus),
     };
   });

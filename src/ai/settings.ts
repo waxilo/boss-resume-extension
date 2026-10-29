@@ -54,7 +54,17 @@ export class AiSettingsStore {
  */
 export async function ensureHostPermission(baseUrl: string): Promise<boolean> {
   if (typeof chrome === "undefined" || !chrome.permissions) return true;
-  const origins = [`${new URL(baseUrl).origin}/*`];
-  if (await chrome.permissions.contains({ origins })) return true;
-  return chrome.permissions.request({ origins });
+  let origins: string[];
+  try {
+    origins = [`${new URL(baseUrl).origin}/*`];
+  } catch {
+    return false;
+  }
+  try {
+    if (await chrome.permissions.contains({ origins })) return true;
+    return await chrome.permissions.request({ origins });
+  } catch {
+    // 不在用户点击的调用栈里、或用户拒绝时，Chrome 会直接抛错
+    return false;
+  }
 }

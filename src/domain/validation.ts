@@ -107,7 +107,7 @@ export function validateResume(resume: BossResumeDocument): ResumeValidationResu
     scope.required("startDate", project.startDate, "开始时间");
     scope.dateRange(
       { field: "startDate", value: project.startDate, label: "开始时间" },
-      { field: "endDate", value: project.endDate, label: "结束时间" },
+      { field: "endDate", value: project.isCurrent ? undefined : project.endDate, label: "结束时间" },
     );
     scope.url("link", project.link, "项目链接");
   });
@@ -116,7 +116,7 @@ export function validateResume(resume: BossResumeDocument): ResumeValidationResu
     scope.required("schoolName", education.schoolName, "学校名称");
     scope.dateRange(
       { field: "startDate", value: education.startDate, label: "开始时间" },
-      { field: "endDate", value: education.endDate, label: "结束时间" },
+      { field: "endDate", value: education.isCurrent ? undefined : education.endDate, label: "结束时间" },
     );
   });
 

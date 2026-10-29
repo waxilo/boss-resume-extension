@@ -67,6 +67,8 @@ describe("简历校验", () => {
       platform: "GitHub",
       url: "https://github.com/example",
     }];
+    // 项目勾了「至今」时不需要结束时间，也不能因此报错
+    resume.projects = [{ localId: "project-1", projectName: "示例项目", startDate: "2023-01", isCurrent: true }];
 
     expect(validateResume(resume)).toEqual({ valid: true, issues: [] });
   });

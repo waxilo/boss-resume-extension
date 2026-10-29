@@ -1,4 +1,4 @@
-import type { BossProject, BossWorkExperience } from "../domain";
+import type { BossEducation, BossProject, BossWorkExperience } from "../domain";
 
 /** 条目型模块的列表展示与新建规则，供 ItemList 使用；表单字段在 App.vue 的插槽里。 */
 export interface ItemSectionConfig<T> {
@@ -43,6 +43,17 @@ export const PROJECTS: ItemSectionConfig<BossProject> = {
   addLabel: "+ 新增项目",
   emptyText: "尚未添加项目经历。",
   title: (item) => item.projectName.trim() || "未命名项目",
-  meta: (item) => join(item.role, range(item.startDate, item.endDate)),
+  meta: (item) => join(item.role, range(item.startDate, item.endDate, item.isCurrent)),
   create: () => ({ localId: newId("project"), projectName: "", startDate: "" }),
+};
+
+export const EDUCATION: ItemSectionConfig<BossEducation> = {
+  eyebrow: "EDUCATION",
+  heading: "教育经历",
+  hint: "学校、专业与在校经历，按时间倒序排列。",
+  addLabel: "+ 新增教育经历",
+  emptyText: "尚未添加教育经历。",
+  title: (item) => item.schoolName.trim() || "未填写学校",
+  meta: (item) => join(item.degree, item.major, range(item.startDate, item.endDate, item.isCurrent)),
+  create: () => ({ localId: newId("education"), schoolName: "" }),
 };

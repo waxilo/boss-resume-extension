@@ -44,6 +44,17 @@ describe("BossResumeAdapter.adaptDetail", () => {
     expect(report.missingGroups).toEqual([]);
   });
 
+  it("教育经历的 isToday 转成「至今」，不再带结束月份", () => {
+    const data = detail();
+    const education = data.eduExpVOList[0] as Record<string, unknown>;
+    education.isToday = true;
+    education.endYear = 0;
+    const outcome = BossResumeAdapter.adaptDetail("cv-1", data, FETCHED_AT);
+    if (!outcome.ok) throw new Error("unexpected");
+    expect(outcome.result.content.educations[0]).toMatchObject({ startDate: "2014-09", isCurrent: true });
+    expect(outcome.result.content.educations[0].endDate).toBeUndefined();
+  });
+
   it("缺少 profileVO 时报格式错误", () => {
     const outcome = BossResumeAdapter.adaptDetail("cv-1", { foo: 1 });
     expect(!outcome.ok && outcome.error.code).toBe("UNEXPECTED_RESPONSE");

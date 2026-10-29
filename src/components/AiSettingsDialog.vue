@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { AiError, pingAi } from "../ai/deepseek";
+import { syncAiOriginRule } from "../ai/originRule";
 import { DEFAULT_AI_SETTINGS, ensureHostPermission, normalizeBaseUrl, type AiSettings } from "../ai/settings";
+import { toast } from "../ui/toast";
 
 const props = defineProps<{ settings: AiSettings }>();
 const emit = defineEmits<{ save: [settings: AiSettings]; close: [] }>();
@@ -9,22 +11,27 @@ const emit = defineEmits<{ save: [settings: AiSettings]; close: [] }>();
 const form = ref<AiSettings>({ ...props.settings });
 const showKey = ref(false);
 const busy = ref(false);
-const error = ref("");
-const okText = ref("");
 
-/** 校验表单并申请接口域名权限；失败返回 undefined 并写入错误提示。 */
+/** 校验表单并申请接口域名权限；不通过时用提示说明原因并返回 undefined。 */
 async function prepare(): Promise<AiSettings | undefined> {
-  error.value = "";
-  okText.value = "";
   const baseUrl = normalizeBaseUrl(form.value.baseUrl);
-  if (!form.value.apiKey.trim()) error.value = "请填写 API Key";
-  else if (!baseUrl) error.value = "接口地址必须以 http:// 或 https:// 开头";
-  else if (!form.value.model.trim()) error.value = "请填写模型名称";
-  if (error.value || !baseUrl) return undefined;
-  if (!(await ensureHostPermission(baseUrl))) {
-    error.value = "没有获得访问该接口地址的权限";
+  const problem = !form.value.apiKey.trim()
+    ? "请填写 API Key"
+    : !baseUrl
+      ? "接口地址必须以 http:// 或 https:// 开头"
+      : !form.value.model.trim()
+        ? "请填写模型名称"
+        : "";
+  if (problem || !baseUrl) {
+    toast({ title: problem || "接口地址格式不对", tone: "error" });
     return undefined;
   }
+  if (!(await ensureHostPermission(baseUrl))) {
+    toast({ title: "没有获得访问该接口地址的权限", tone: "error", lines: ["浏览器没有放行这个域名，请重新点一次「测试连接」并在弹窗里允许。"] });
+    return undefined;
+  }
+  // 去掉扩展页自带的 Origin，否则只放行 http(s) 来源的网关会直接 403。
+  await syncAiOriginRule(baseUrl);
   return { apiKey: form.value.apiKey.trim(), baseUrl, model: form.value.model.trim() };
 }
 
@@ -34,9 +41,9 @@ async function test(): Promise<void> {
   busy.value = true;
   try {
     await pingAi(settings);
-    okText.value = "连接成功";
+    toast({ title: "连接成功", tone: "ok", lines: [`${settings.model} · ${settings.baseUrl}`] });
   } catch (cause) {
-    error.value = cause instanceof AiError ? cause.message : "连接失败，请检查配置";
+    toast({ title: "连接失败", tone: "error", lines: [cause instanceof AiError ? cause.message : "请检查接口地址、API Key 和模型名称"] });
   } finally {
     busy.value = false;
   }
@@ -70,8 +77,6 @@ function resetDefaults(): void {
         <label class="field">接口地址<input v-model="form.baseUrl" spellcheck="false" placeholder="https://api.deepseek.com" /></label>
         <label class="field">模型<input v-model="form.model" spellcheck="false" placeholder="deepseek-flash" /></label>
       </div>
-      <p v-if="error" class="save-error" role="alert">{{ error }}</p>
-      <p v-if="okText" class="ai-ok" role="status">{{ okText }}</p>
       <div class="dialog-actions">
         <button class="button button--quiet" type="button" @click="resetDefaults">恢复默认</button>
         <button class="button button--outline" type="button" :disabled="busy" @click="test">{{ busy ? "测试中…" : "测试连接" }}</button>

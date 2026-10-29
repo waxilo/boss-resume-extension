@@ -135,25 +135,33 @@ export function applyAiResume(base: BossResumeDocument, patch: Rec): BossResumeD
     };
   });
 
-  next.projects = mergeItems<BossProject>("project", base.projects, patch.projects, (s) => ({
-    projectName: str(s.projectName) ?? "",
-    role: str(s.role),
-    startDate: normalizeDate(s.startDate) ?? "",
-    endDate: normalizeDate(s.endDate),
-    description: str(s.description),
-    achievements: str(s.achievements),
-    link: str(s.link),
-  }));
+  next.projects = mergeItems<BossProject>("project", base.projects, patch.projects, (s) => {
+    const isCurrent = bool(s.isCurrent);
+    return {
+      projectName: str(s.projectName) ?? "",
+      role: str(s.role),
+      startDate: normalizeDate(s.startDate) ?? "",
+      endDate: isCurrent ? undefined : normalizeDate(s.endDate),
+      isCurrent,
+      description: str(s.description),
+      achievements: str(s.achievements),
+      link: str(s.link),
+    };
+  });
 
-  next.educations = mergeItems<BossEducation>("education", base.educations, patch.educations, (s) => ({
-    schoolName: str(s.schoolName) ?? "",
-    degree: str(s.degree),
-    major: str(s.major),
-    startDate: normalizeDate(s.startDate),
-    endDate: normalizeDate(s.endDate),
-    campusExperience: str(s.campusExperience),
-    thesis: str(s.thesis),
-  }));
+  next.educations = mergeItems<BossEducation>("education", base.educations, patch.educations, (s) => {
+    const isCurrent = bool(s.isCurrent);
+    return {
+      schoolName: str(s.schoolName) ?? "",
+      degree: str(s.degree),
+      major: str(s.major),
+      startDate: normalizeDate(s.startDate),
+      endDate: isCurrent ? undefined : normalizeDate(s.endDate),
+      isCurrent,
+      campusExperience: str(s.campusExperience),
+      thesis: str(s.thesis),
+    };
+  });
 
   next.certificates = mergeItems<BossCertificate>("certificate", base.certificates, patch.certificates, (s) => ({
     name: str(s.name) ?? "",

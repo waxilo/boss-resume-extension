@@ -1,6 +1,7 @@
 import { diffResumes, type ResumeFieldDiff } from "../domain/diff";
 import type { BossResumeDocument } from "../domain/types";
 import { AiError, chatJson, type ChatMessage } from "./deepseek";
+import { buildMaterialsBlock, type ResumeMaterial } from "./materials";
 import { applyAiResume } from "./resumePatch";
 import type { AiSettings } from "./settings";
 
@@ -37,19 +38,27 @@ export function editableView(resume: BossResumeDocument): Record<string, unknown
   };
 }
 
-function systemPrompt(resume: BossResumeDocument): string {
+function systemPrompt(resume: BossResumeDocument, materials: ResumeMaterial[]): string {
+  const hasMaterials = materials.length > 0;
   return [
     "你是资深的中文简历顾问，帮用户修改一份要上传到 BOSS 直聘的在线简历。",
     "",
     "当前简历（json）：",
     JSON.stringify(editableView(resume), null, 2),
-    "",
+    buildMaterialsBlock(materials),
     "修改规则：",
     "- 日期一律用 YYYY-MM；isCurrent 为 true 表示「至今」，此时不要填 endDate。",
     "- 已有条目的 localId 必须原样保留；新增条目不写 localId；删除条目就从数组里去掉。",
     "- gender 只能是 male / female / unknown；skills、cities、positions、industries 是字符串数组。",
     "- 必填：简历名称、姓名；工作经历的公司名称、职位名称、开始时间；项目经历的项目名称、开始时间；教育经历的学校名称。",
     "- 不要编造用户没提供的公司、学校、时间、数字成果；信息不够时在 reply 里向用户提问，resume 返回 null。",
+    ...(hasMaterials
+      ? [
+          "- 补充材料是用户提供的原始资料，用来补全简历中的空缺（时间、职责、数字成果、技能等）；材料与简历冲突时以材料为准，并在 reply 里说明改了哪里。",
+          "- 只取与求职相关的事实，不要把材料里的无关内容塞进简历，也不要照抄整段原文。",
+          "- 用户消息里的链接已经抓取为材料，直接按材料内容处理，不要回答「无法访问链接」。",
+        ]
+      : []),
     "- 用户只要求改某一部分时，其他部分保持原样。",
     "- 文字面向招聘方：动词开头、突出职责和可量化成果，分点内容用换行分隔。",
     "",
@@ -58,19 +67,25 @@ function systemPrompt(resume: BossResumeDocument): string {
   ].join("\n");
 }
 
+export interface AiAskOptions {
+  /** 用户导入的补充材料，随本次请求一起送给模型。 */
+  materials?: ResumeMaterial[];
+  signal?: AbortSignal;
+}
+
 export async function askResumeAssistant(
   settings: AiSettings,
   resume: BossResumeDocument,
   history: AiTurn[],
   input: string,
-  signal?: AbortSignal,
+  options: AiAskOptions = {},
 ): Promise<AiEditResult> {
   const messages: ChatMessage[] = [
-    { role: "system", content: systemPrompt(resume) },
+    { role: "system", content: systemPrompt(resume, options.materials ?? []) },
     ...history.slice(-HISTORY_LIMIT),
     { role: "user", content: input },
   ];
-  const raw = await chatJson(settings, messages, { signal });
+  const raw = await chatJson(settings, messages, { signal: options.signal });
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new AiError("AI 返回的格式与约定不符，请重试");
   const { reply, resume: patch } = raw as { reply?: unknown; resume?: unknown };
   const text = typeof reply === "string" && reply.trim() ? reply.trim() : "";

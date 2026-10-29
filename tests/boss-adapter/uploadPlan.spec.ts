@@ -36,8 +36,7 @@ describe("uploadPlan 转换", () => {
     expect(plan.notUploaded).toContain("工作经历中的行业、部门与技能标签");
   });
 
-  it("未知学历留空并提示；无姓名、超过 10 段时阻止上传", () => {
-    const doc = resume();
+  it("未知学历留空并提示；无姓名、超过 10 段时阻止上传", () => {    const doc = resume();
     doc.profile.name = "";
     doc.educations[0].degree = "MBA";
     doc.workExperiences = Array.from({ length: 11 }, (_, i) => ({ ...doc.workExperiences[0], localId: `w${i}` }));
@@ -45,6 +44,13 @@ describe("uploadPlan 转换", () => {
     expect(plan.educations[0].degree).toBe(0);
     expect(plan.notes.some((note) => note.includes("MBA"))).toBe(true);
     expect(plan.blockers).toHaveLength(2);
+  });
+
+  it("教育经历勾了至今就不带结束年份", () => {
+    const doc = resume();
+    doc.educations[0].isCurrent = true;
+    const plan = buildUploadPlan(doc);
+    expect(plan.educations[0]).toMatchObject({ current: true, startYear: 2014, endYear: undefined });
   });
 
   it("计划可 JSON 序列化（要作为 executeScript 参数传入页面）", () => {

@@ -78,6 +78,16 @@ describe("askResumeAssistant", () => {
     expect(body.messages[0].content).not.toContain("https://img/a.png");
   });
 
+  it("补充材料随 system prompt 一起发出", async () => {
+    const fetchMock = stubReply({ reply: "已按材料补全", resume: null });
+    await askResumeAssistant(settings, sample(), [], "按材料补全", {
+      materials: [{ id: "m1", name: "JD.md", chars: 14, truncated: false, text: "岗位职责：负责 Java 后端" }],
+    });
+    const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(body.messages[0].content).toContain("【JD.md】");
+    expect(body.messages[0].content).toContain("负责 Java 后端");
+  });
+
   it("resume 为 null 时只返回回复", async () => {
     stubReply({ reply: "请提供岗位 JD", resume: null });
     const result = await askResumeAssistant(settings, sample(), [], "按 JD 优化");

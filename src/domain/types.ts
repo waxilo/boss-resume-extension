@@ -1,11 +1,6 @@
 export type BossResumeSource = "boss-import" | "manual" | "copy";
 
-export type BossResumeSyncState =
-  | "unbound"
-  | "synced"
-  | "local-dirty"
-  | "upload-failed"
-  | "unsupported";
+export type BossResumeSyncState = "unbound" | "synced" | "local-dirty";
 
 export interface BossResumeDocument {
   localId: string;
@@ -21,7 +16,7 @@ export interface BossResumeDocument {
   bossCvId?: string;
   /** 直聘简历的样式模板；上传时沿用，保证拉取后再上传样式不变。复制时保留。 */
   bossTemplateId?: string;
-  /** 个人优势 / 工作经历 / 项目经历的显示顺序（advantage、work、projects），对应直聘简历的模块排序。缺省按默认顺序。 */
+  /** 个人优势 / 工作经历 / 项目经历 / 教育经历的显示顺序（advantage、work、projects、education），对应直聘简历的模块排序。缺省按默认顺序。 */
   sectionOrder?: string[];
   profile: BossProfile;
   advantage: string;
@@ -75,6 +70,8 @@ export interface BossProject {
   role?: string;
   startDate: string;
   endDate?: string;
+  /** 项目仍在进行，结束时间显示为「至今」。 */
+  isCurrent?: boolean;
   description?: string;
   achievements?: string;
   link?: string;
@@ -87,6 +84,8 @@ export interface BossEducation {
   major?: string;
   startDate?: string;
   endDate?: string;
+  /** 仍在读，结束时间显示为「至今」。 */
+  isCurrent?: boolean;
   campusExperience?: string;
   thesis?: string;
 }

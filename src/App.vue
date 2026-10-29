@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, toRaw, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRaw, watch } from "vue";
 import {
   copyResume,
   createBlankResume,
@@ -17,13 +17,18 @@ import { buildUploadPlan, type BossUploadResult } from "./boss/uploadPlan";
 import type { BossFetchError } from "./boss/types";
 import StringList from "./components/StringList.vue";
 import ItemList from "./components/ItemList.vue";
-import { PROJECTS, WORK } from "./editor/itemSections";
+import { EDUCATION, PROJECTS, WORK } from "./editor/itemSections";
 import ResumePreview from "./components/ResumePreview.vue";
 import AiChat from "./components/AiChat.vue";
 import AiSettingsDialog from "./components/AiSettingsDialog.vue";
 import { AiSettingsStore, DEFAULT_AI_SETTINGS, type AiSettings } from "./ai/settings";
+import type { ResumeMaterial } from "./ai/materials";
+import { syncAiOriginRule } from "./ai/originRule";
 import { normalizeSectionOrder, type MovableSectionId, type SectionId } from "./editor/sections";
 import SectionNav from "./components/SectionNav.vue";
+import DateRangeFields from "./components/DateRangeFields.vue";
+import ToastHost from "./components/ToastHost.vue";
+import { toast } from "./ui/toast";
 
 type SaveState = "saved" | "saving" | "error" | "unsaved";
 
@@ -32,10 +37,8 @@ const resumes = ref<ResumeIndexItem[]>([]);
 const current = ref<BossResumeDocument>();
 const view = ref<"list" | "editor">("list");
 const saveState = ref<SaveState>("saved");
-const saveError = ref("");
 /** 待确认删除的简历；undefined 表示未打开删除确认框。 */
 const pendingRemoval = ref<{ localId: string; title: string }>();
-const removeError = ref("");
 const activeSection = ref<SectionId>("profile");
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let suspendAutoSave = false;
@@ -43,37 +46,26 @@ let ignoreNextChange = false;
 const BOSS_RESUME_URL = "https://cv.zhipin.com/my-resumes/";
 
 const fetching = ref(false);
-const fetchError = ref<BossFetchError>();
-/** 本次导入（或刷新）的每份简历的读取报告。 */
-const importReports = shallowRef<{ cvName: string; updated: boolean; report: BossImportReport }[]>();
-/** 本次导入中读取失败的直聘简历。 */
-const importFailures = shallowRef<{ cvName: string; message: string }[]>([]);
 /** 读取进度：已处理 / 总数。 */
 const fetchProgress = ref<{ done: number; total: number }>();
 /** 刚从直聘简历导入的本地简历，在列表里高亮。 */
 const importedResumeIds = ref<string[]>([]);
-/** 本次导入时，因直聘简历已删除而删掉 / 解除绑定的本地简历标题。 */
-const syncCleanup = shallowRef<{ removed: string[]; unbound: string[] }>();
 
 /** 列出直聘简历（cv.zhipin.com/my-resumes/）里的全部简历，逐份读取并各存为一份本地简历。 */
 async function startBossFetch(): Promise<void> {
   if (fetching.value) return;
   fetching.value = true;
-  fetchError.value = undefined;
-  importReports.value = undefined;
-  importFailures.value = [];
   importedResumeIds.value = [];
-  syncCleanup.value = undefined;
   try {
     const outcome = await listBossResumes();
     if (!outcome.ok) {
-      fetchError.value = outcome.error;
+      showFetchError(outcome.error);
       return;
     }
     const items = outcome.data.resumes;
     if (!items.length) {
       // 列表为空时不做删除对齐：接口格式变化也会读出空列表，宁可不删也不误删全部本地简历。
-      fetchError.value = { code: "NO_DATA", message: "直聘简历里还没有简历，请先在 cv.zhipin.com/my-resumes/ 新建一份" };
+      showFetchError({ code: "NO_DATA", message: "直聘简历里还没有简历，请先在 cv.zhipin.com/my-resumes/ 新建一份" });
       return;
     }
     if (view.value === "editor") {
@@ -105,7 +97,7 @@ async function startBossFetch(): Promise<void> {
       if (!boundByCvId.has(doc.bossCvId)) boundByCvId.set(doc.bossCvId, doc.localId);
     }
     if (current.value && removed.length && !(await repository.get(current.value.localId))) current.value = undefined;
-    syncCleanup.value = removed.length || unbound.length ? { removed, unbound } : undefined;
+    const cleanup = removed.length || unbound.length ? { removed, unbound } : undefined;
     const reports: { cvName: string; updated: boolean; report: BossImportReport }[] = [];
     const failures: { cvName: string; message: string }[] = [];
     const ids: string[] = [];
@@ -130,15 +122,78 @@ async function startBossFetch(): Promise<void> {
     }
     await loadList();
     importedResumeIds.value = ids;
-    importReports.value = reports.length ? reports : undefined;
-    importFailures.value = failures;
-    if (!reports.length) fetchError.value = { code: "PAGE_UNAVAILABLE", message: "直聘简历都没有读取成功", detail: failures.map((f) => `${f.cvName}：${f.message}`).join("\n") };
+    showImportToast(reports, failures, cleanup);
   } catch (error) {
-    fetchError.value = { code: "PAGE_UNAVAILABLE", message: "读取失败，请重新加载扩展后重试", detail: error instanceof Error ? error.message : String(error) };
+    showFetchError({ code: "PAGE_UNAVAILABLE", message: "读取失败，请重新加载扩展后重试", detail: error instanceof Error ? error.message : String(error) });
   } finally {
     fetching.value = false;
     fetchProgress.value = undefined;
   }
+}
+
+/** 读取直聘简历失败：标题给结论，详情逐行展开。 */
+function showFetchError(error: BossFetchError): void {
+  toast({ title: error.message, tone: "error", lines: error.detail ? error.detail.split("\n") : [] });
+}
+
+/** 导入结束后汇总成一条提示：份数、每份读到了什么、以及被对齐删除 / 解除绑定的本地条目。 */
+function showImportToast(
+  reports: { cvName: string; updated: boolean; report: BossImportReport }[],
+  failures: { cvName: string; message: string }[],
+  cleanup?: { removed: string[]; unbound: string[] },
+): void {
+  if (cleanup?.removed.length) {
+    toast({ title: `直聘简历里已删除，本地一并删除 ${cleanup.removed.length} 份`, tone: "info", lines: [cleanup.removed.join("、")] });
+  }
+  if (cleanup?.unbound.length) {
+    toast({
+      title: `直聘简历里已删除，本地保留 ${cleanup.unbound.length} 份并解除绑定`,
+      tone: "info",
+      lines: [cleanup.unbound.join("、"), "这些有未上传的修改，再点「上传」会在直聘新建一份"],
+    });
+  }
+  if (!reports.length && !failures.length) return;
+  const lines: string[] = [];
+  for (const entry of reports) {
+    const groups = entry.report.readGroups.length
+      ? entry.report.readGroups.map((group) => `${group.label}${group.count > 1 ? ` ${group.count} 条` : ""}`).join("、")
+      : "没有读取到内容";
+    const missing = entry.report.missingGroups.length ? `；未读取到 ${entry.report.missingGroups.join("、")}` : "";
+    lines.push(`${entry.cvName}（${entry.updated ? "已更新" : "新建"}）：${groups}${missing}`);
+    lines.push(...entry.report.warnings);
+  }
+  for (const failure of failures) lines.push(`「${failure.cvName}」读取失败：${failure.message}`);
+  const updated = reports.filter((entry) => entry.updated).length;
+  const created = reports.length - updated;
+  const title = reports.length
+    ? `已从直聘简历导入 ${reports.length} 份${created ? `，新建 ${created} 份` : ""}${updated ? `，更新 ${updated} 份` : ""}${failures.length ? `，${failures.length} 份读取失败` : ""}`
+    : "直聘简历都没有读取成功";
+  toast({ title, tone: failures.length ? "error" : "ok", lines, actions: [{ label: "去直聘简历查看 ↗", href: BOSS_RESUME_URL }] });
+}
+
+/** 上传结果：成功给结果口径和直聘链接；失败给到哪一步，以及重试会覆盖哪一份。 */
+function showUploadResult(result: BossUploadResult): void {
+  if (result.ok) {
+    toast({
+      title: `已上传，${result.created ? "在直聘简历新建了一份" : "覆盖了直聘简历里的那份"}`,
+      tone: "ok",
+      lines: result.warnings,
+      actions: [{ label: "去直聘简历查看 ↗", href: result.editUrl }],
+    });
+    return;
+  }
+  const lines = [...(result.error.detail ? [result.error.detail] : []), ...result.warnings];
+  if (result.editUrl) {
+    lines.push(result.created
+      ? "失败前已经新建了简历，里面可能还留着模板示例内容；这份已绑定到本地，重新点「上传」会覆盖它。"
+      : "直聘简历里那份可能只覆盖了一部分，重新点「上传」会继续覆盖它。");
+  }
+  toast({
+    title: `已保存到本地，上传到 BOSS 失败${result.error.step ? `（${result.error.step}）` : ""}：${result.error.message}`,
+    tone: "error",
+    lines,
+    actions: result.editUrl ? [{ label: "去直聘简历处理 ↗", href: result.editUrl }] : [],
+  });
 }
 
 // ---------- 上传到 BOSS（已绑定的覆盖，未绑定的新建） ----------
@@ -146,30 +201,30 @@ async function startBossFetch(): Promise<void> {
 const uploadingResume = ref(false);
 
 /**
- * 上传成功后回写上传时间，并把本地简历绑定到这份直聘简历（下次上传直接覆盖它）。
+ * 上传结束后回写直聘绑定，保证「一份本地简历 ↔ 一份直聘简历」始终对得上。
+ *
+ * - 成功：记上传时间，状态置为「已同步」。
+ * - 中途失败但直聘那边已经建出了简历（`cvId` 有值）：照样绑上，只把状态降为「本地已修改」。
+ *   这样重试就是覆盖那份半成品，不会在直聘上多出一份重复简历、还白占份数。
  * 若该简历正在编辑器中打开，同步内存副本且不触发自动保存。
  */
-async function markUploaded(localId: string, cvId: string): Promise<void> {
+async function markUploaded(localId: string, cvId: string, complete = true): Promise<void> {
   const stored = await repository.get(localId);
   if (!stored) return;
-  stored.lastBossUploadedAt = new Date().toISOString();
   stored.bossCvId = cvId;
-  stored.syncState = "synced";
+  if (complete) stored.lastBossUploadedAt = new Date().toISOString();
+  stored.syncState = complete ? "synced" : "local-dirty";
   await repository.save(stored);
   if (current.value?.localId === localId) {
     ignoreNextChange = true;
-    current.value = { ...current.value, lastBossUploadedAt: stored.lastBossUploadedAt, bossCvId: cvId, syncState: "synced" };
+    current.value = { ...current.value, bossCvId: cvId, lastBossUploadedAt: stored.lastBossUploadedAt, syncState: stored.syncState };
   }
   await loadList();
 }
 
 /** 编辑页「上传」：先存本地，再直接上传到直聘简历（已绑定的覆盖，未绑定的新建），不弹确认框。 */
-const saveUploadResult = shallowRef<BossUploadResult>();
-const saveUploadBlockers = ref<string[]>([]);
 async function uploadCurrent(): Promise<void> {
   if (!current.value || uploadingResume.value) return;
-  saveUploadResult.value = undefined;
-  saveUploadBlockers.value = [];
   await saveNow();
   if (saveState.value !== "saved" || !current.value) return;
   const target = await repository.get(current.value.localId);
@@ -177,20 +232,22 @@ async function uploadCurrent(): Promise<void> {
   const plan = buildUploadPlan(structuredClone(target));
   const blockers = [...plan.blockers, ...validateResume(target).issues.map(describeIssue)];
   if (blockers.length) {
-    saveUploadBlockers.value = blockers;
+    toast({ title: "已保存到本地，但还不能上传到 BOSS", tone: "error", lines: ["先改好这些问题再上传：", ...blockers] });
     return;
   }
   uploadingResume.value = true;
   try {
     const result = await uploadBossResume(plan);
-    saveUploadResult.value = result;
+    showUploadResult(result);
+    // 失败时只要直聘已经建出了简历，也绑上：重试会覆盖这份半成品，不再新建重复的一份。
     if (result.ok) await markUploaded(target.localId, result.cvId);
+    else if (result.cvId) await markUploaded(target.localId, result.cvId, false);
   } catch (error) {
-    saveUploadResult.value = {
+    showUploadResult({
       ok: false,
       error: { code: "NO_TAB", message: "上传失败，请重新加载扩展后重试", detail: error instanceof Error ? error.message : String(error) },
       warnings: [],
-    };
+    });
   } finally {
     uploadingResume.value = false;
   }
@@ -202,11 +259,14 @@ const editorMode = ref<"edit" | "ai">("edit");
 const aiStore = new AiSettingsStore();
 const aiSettings = ref<AiSettings>({ ...DEFAULT_AI_SETTINGS });
 const showAiSettings = ref(false);
+/** AI 编辑时导入的补充材料。放在这里是因为切到「编辑」后 AiChat 会卸载，但材料不该丢。 */
+const aiMaterials = ref<ResumeMaterial[]>([]);
 
 async function saveAiSettings(settings: AiSettings): Promise<void> {
   await aiStore.save(settings);
   aiSettings.value = settings;
   showAiSettings.value = false;
+  void syncAiOriginRule(settings.baseUrl);
 }
 
 /** AI 改完（或撤销）后整体替换当前简历，走正常的自动保存。 */
@@ -228,6 +288,7 @@ const ISSUE_SECTION: Record<string, SectionId> = {
   jobIntent: "profile",
   workExperiences: "work",
   projects: "projects",
+  educations: "education",
 };
 
 /** 各模块未通过校验的问题，用于左侧菜单标注。 */
@@ -249,8 +310,6 @@ const syncLabel: Record<BossResumeDocument["syncState"], string> = {
   unbound: "未绑定",
   synced: "已同步",
   "local-dirty": "本地已修改",
-  "upload-failed": "上传失败",
-  unsupported: "暂不支持上传",
 };
 
 const saveText = computed(() => ({
@@ -298,7 +357,6 @@ async function openResume(id: string): Promise<void> {
   activeSection.value = "profile";
   editorMode.value = "edit";
   saveState.value = "saved";
-  clearImportNotice();
   importedResumeIds.value = [];
   view.value = "editor";
   // 等待 deep watch 处理完这次整体替换，再恢复自动保存，避免“打开即视为编辑”。
@@ -326,7 +384,6 @@ async function duplicateResume(id = current.value?.localId): Promise<void> {
 }
 
 function requestRemove(resume: { localId: string; title: string }): void {
-  removeError.value = "";
   pendingRemoval.value = { localId: resume.localId, title: resume.title };
 }
 
@@ -339,7 +396,6 @@ async function confirmRemove(): Promise<void> {
       if (saveTimer) clearTimeout(saveTimer);
       suspendAutoSave = true;
       current.value = undefined;
-      clearImportNotice();
       view.value = "list";
       await nextTick();
       suspendAutoSave = false;
@@ -348,7 +404,7 @@ async function confirmRemove(): Promise<void> {
     pendingRemoval.value = undefined;
     await loadList();
   } catch (error) {
-    removeError.value = error instanceof Error ? error.message : "浏览器本地存储不可用，请稍后重试。";
+    toast({ title: "删除失败", tone: "error", lines: [error instanceof Error ? error.message : "浏览器本地存储不可用，请稍后重试。"] });
   }
 }
 
@@ -359,7 +415,6 @@ async function saveNow(): Promise<void> {
   if (!current.value) return;
   if (saveTimer) clearTimeout(saveTimer);
   saveState.value = "saving";
-  saveError.value = "";
   const document = structuredClone(toRaw(current.value));
   document.updatedAt = new Date().toISOString();
   if (hasUserEdits && document.syncState === "synced") document.syncState = "local-dirty";
@@ -373,7 +428,7 @@ async function saveNow(): Promise<void> {
     saveState.value = "saved";
     await loadList();
   } catch (error) {
-    saveError.value = error instanceof Error ? error.message : "浏览器本地存储不可用，请稍后重试。";
+    toast({ title: "保存到本地失败", tone: "error", lines: [error instanceof Error ? error.message : "浏览器本地存储不可用，请稍后重试。"] });
     saveState.value = "error";
   }
 }
@@ -390,24 +445,21 @@ function scheduleSave(): void {
   saveTimer = setTimeout(() => void saveNow(), 800);
 }
 
-function clearImportNotice(): void {
-  importReports.value = undefined;
-  importFailures.value = [];
-  syncCleanup.value = undefined;
-  saveUploadResult.value = undefined;
-  saveUploadBlockers.value = [];
-}
-
 function goList(): void {
   if (saveState.value === "unsaved" || saveState.value === "error") void saveNow();
-  clearImportNotice();
   view.value = "list";
 }
 
 watch(current, scheduleSave, { deep: true });
+/** 换简历时清空补充材料：材料属于上一份简历的上下文。 */
+watch(() => current.value?.localId, () => { aiMaterials.value = []; });
 onMounted(() => {
   void loadList();
-  void aiStore.load().then((settings) => (aiSettings.value = settings));
+  void aiStore.load().then((settings) => {
+    aiSettings.value = settings;
+    // 浏览器重启后动态规则可能已被清掉，这里按已保存的接口地址补一次。
+    void syncAiOriginRule(settings.baseUrl);
+  });
 });
 onBeforeUnmount(() => {
   if (saveTimer) clearTimeout(saveTimer);
@@ -431,52 +483,9 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
-    <section v-if="view === 'editor' && saveUploadBlockers.length" class="notice notice--error" role="alert">
-      <div><strong>已保存到本地，但还不能上传到 BOSS，请先改好这些问题：</strong><p v-for="b in saveUploadBlockers" :key="b">{{ b }}</p></div>
-      <div class="notice-actions"><button class="text-button" type="button" @click="saveUploadBlockers = []">关闭</button></div>
-    </section>
-    <section v-if="view === 'editor' && saveUploadResult" class="notice" :class="saveUploadResult.ok ? 'notice--ok' : 'notice--error'" :role="saveUploadResult.ok ? 'status' : 'alert'">
-      <div>
-        <template v-if="saveUploadResult.ok">
-          <strong>已上传，{{ saveUploadResult.created ? "在直聘简历新建了一份" : "覆盖了直聘简历里的那份" }}</strong>
-          <p><a :href="saveUploadResult.editUrl" target="_blank" rel="noopener noreferrer">去直聘简历查看 ↗</a></p>
-        </template>
-        <template v-else>
-          <strong>已保存到本地，上传到 BOSS 失败<span v-if="saveUploadResult.error.step">（{{ saveUploadResult.error.step }}）</span>：{{ saveUploadResult.error.message }}</strong>
-          <p v-if="saveUploadResult.editUrl"><template v-if="saveUploadResult.created">失败前已经新建了简历，里面可能还留着模板示例内容。</template><template v-else>直聘简历里那份可能只覆盖了一部分。</template><a :href="saveUploadResult.editUrl" target="_blank" rel="noopener noreferrer">去直聘简历处理 ↗</a></p>
-          <p v-if="saveUploadResult.error.detail">{{ saveUploadResult.error.detail }}</p>
-        </template>
-        <p v-for="w in saveUploadResult.warnings" :key="w">{{ w }}</p>
-      </div>
-      <div class="notice-actions"><button class="text-button" type="button" @click="saveUploadResult = undefined">关闭</button></div>
-    </section>
-    <section v-if="fetchError" class="notice notice--error" role="alert">
-      <div><strong>{{ fetchError.message }}</strong><p v-if="fetchError.detail">{{ fetchError.detail }}</p></div>
-      <div class="notice-actions">
-        <button class="text-button" type="button" @click="fetchError = undefined">关闭</button>
-      </div>
-    </section>
-    <section v-if="importReports || syncCleanup" class="notice notice--ok" role="status">
-      <div>
-        <template v-if="syncCleanup">
-          <p v-if="syncCleanup.removed.length"><b>直聘简历里已删除，本地一并删除：</b>{{ syncCleanup.removed.join("、") }}</p>
-          <p v-if="syncCleanup.unbound.length"><b>直聘简历里已删除，但本地有未上传的修改，已保留并解除绑定：</b>{{ syncCleanup.unbound.join("、") }}（再点「保存」会新建一份）</p>
-        </template>
-        <strong v-if="importReports">已从直聘简历导入 {{ importReports.length }} 份 · {{ formatDate(importReports[0].report.fetchedAt) }}<template v-if="importReports.some((r) => !r.updated)">，新建 {{ importReports.filter((r) => !r.updated).length }} 份</template><template v-if="importReports.some((r) => r.updated)">，更新 {{ importReports.filter((r) => r.updated).length }} 份</template></strong>
-        <template v-for="(entry, i) in importReports ?? []" :key="i">
-          <p><b>{{ entry.cvName }}</b>（{{ entry.updated ? "已更新" : "新建" }}）：{{ entry.report.readGroups.length ? entry.report.readGroups.map((g) => `${g.label}${g.count > 1 ? ` ${g.count} 条` : ""}`).join("、") : "没有读取到内容" }}<template v-if="entry.report.missingGroups.length">；未读取到 {{ entry.report.missingGroups.join("、") }}</template></p>
-          <p v-for="warning in entry.report.warnings" :key="warning">{{ warning }}</p>
-        </template>
-        <p v-for="(failure, i) in importFailures" :key="`f${i}`">「{{ failure.cvName }}」读取失败：{{ failure.message }}</p>
-      </div>
-      <div class="notice-actions">
-        <button class="text-button" type="button" @click="clearImportNotice">关闭</button>
-      </div>
-    </section>
-
     <section v-if="view === 'list'" class="list-view" aria-labelledby="page-title">
       <div class="list-hero">
-        <div><p class="eyebrow">YOUR LOCAL VERSIONS</p><h1 id="page-title">管理每一份<br><em>求职档案</em></h1><p>本地编辑，按你的节奏准备下一次机会。</p></div>
+        <div><p class="eyebrow">YOUR LOCAL VERSIONS</p><h1 id="page-title">管理每一份<em>求职档案</em></h1><p>本地编辑，按你的节奏准备下一次机会。</p></div>
         <div class="hero-actions"><button class="button button--accent button--large" type="button" @click="createResume">+ 创建空白简历</button><button class="button button--outline" type="button" :disabled="fetching" @click="startBossFetch">{{ fetching ? (fetchProgress ? `正在读取 BOSS（${fetchProgress.done}/${fetchProgress.total}）…` : "正在读取 BOSS…") : "从 BOSS 获取" }}</button><a class="button button--quiet" :href="BOSS_RESUME_URL" target="_blank" rel="noopener noreferrer">前往 BOSS 简历 ↗</a></div>
       </div>
       <div class="list-toolbar"><span>{{ resumes.length }} 份本地简历</span><span>不会自动上传 BOSS</span></div>
@@ -510,14 +519,14 @@ onBeforeUnmount(() => {
             <section v-if="activeSection === 'advantage'" class="form-section"><div class="section-heading"><p class="eyebrow">ADVANTAGE</p><h2>个人优势</h2><p>用具体能力、经验和成果说明你的价值。</p></div><label class="field field--wide"><span class="visually-hidden">个人优势</span><textarea v-model="current.advantage" rows="10" maxlength="2000" placeholder="例如：5 年消费互联网产品经验，主导过从 0 到 1 的增长产品…" /></label><p class="field-hint">{{ current.advantage.length }}/2000。最终以 BOSS 服务端的字段限制为准。</p></section>
 
 
-            <section v-if="activeSection === 'work'" class="form-section"><ItemList :items="current.workExperiences" v-bind="WORK" :issues-of="itemIssues('workExperiences')"><template #form="{ item }"><div class="form-grid"><label class="field"><span>公司名称 *</span><input v-model="item.companyName" /></label><label class="field"><span>职位名称 *</span><input v-model="item.positionName" /></label><label class="field"><span>所属行业</span><input v-model="item.industry" /></label><label class="field"><span>所属部门</span><input v-model="item.department" /></label><label class="field"><span>开始时间 *</span><input v-model="item.startDate" type="month" /></label><label class="field"><span>结束时间</span><input v-model="item.endDate" type="month" :disabled="item.isCurrent" /></label><label class="check-field"><input v-model="item.isCurrent" type="checkbox" />仍在职</label><label class="field field--wide"><span>工作职责</span><textarea v-model="item.responsibilities" rows="6" /></label><label class="field field--wide"><span>工作成果</span><textarea v-model="item.achievements" rows="6" /></label></div><StringList label="技能" :items="item.skills" /></template></ItemList></section>
+            <section v-if="activeSection === 'work'" class="form-section"><ItemList :items="current.workExperiences" v-bind="WORK" :issues-of="itemIssues('workExperiences')"><template #form="{ item }"><div class="form-grid"><label class="field"><span>公司名称 *</span><input v-model="item.companyName" /></label><label class="field"><span>职位名称 *</span><input v-model="item.positionName" /></label><label class="field"><span>所属行业</span><input v-model="item.industry" /></label><label class="field"><span>所属部门</span><input v-model="item.department" /></label><DateRangeFields v-model:start-date="item.startDate" v-model:end-date="item.endDate" v-model:is-current="item.isCurrent" start-required /><label class="field field--wide"><span>工作职责</span><textarea v-model="item.responsibilities" rows="6" /></label><label class="field field--wide"><span>工作成果</span><textarea v-model="item.achievements" rows="6" /></label></div><StringList label="技能" :items="item.skills" /></template></ItemList></section>
 
-            <section v-if="activeSection === 'projects'" class="form-section"><ItemList :items="current.projects" v-bind="PROJECTS" :issues-of="itemIssues('projects')"><template #form="{ item }"><div class="form-grid"><label class="field"><span>项目名称 *</span><input v-model="item.projectName" /></label><label class="field"><span>担任角色</span><input v-model="item.role" /></label><label class="field"><span>开始时间 *</span><input v-model="item.startDate" type="month" /></label><label class="field"><span>结束时间</span><input v-model="item.endDate" type="month" /></label><label class="field field--wide"><span>项目描述</span><textarea v-model="item.description" rows="8" /></label><label class="field field--wide"><span>项目成果</span><textarea v-model="item.achievements" rows="6" /></label><label class="field field--wide"><span>项目链接</span><input v-model="item.link" type="url" placeholder="https://" /></label></div></template></ItemList></section>
+            <section v-if="activeSection === 'projects'" class="form-section"><ItemList :items="current.projects" v-bind="PROJECTS" :issues-of="itemIssues('projects')"><template #form="{ item }"><div class="form-grid"><label class="field"><span>项目名称 *</span><input v-model="item.projectName" /></label><label class="field"><span>担任角色</span><input v-model="item.role" /></label><DateRangeFields v-model:start-date="item.startDate" v-model:end-date="item.endDate" v-model:is-current="item.isCurrent" start-required /><label class="field field--wide"><span>项目描述</span><textarea v-model="item.description" rows="8" /></label><label class="field field--wide"><span>项目成果</span><textarea v-model="item.achievements" rows="6" /></label><label class="field field--wide"><span>项目链接</span><input v-model="item.link" type="url" placeholder="https://" /></label></div></template></ItemList></section>
+            <section v-if="activeSection === 'education'" class="form-section"><ItemList :items="current.educations" v-bind="EDUCATION" :issues-of="itemIssues('educations')"><template #form="{ item }"><div class="form-grid"><label class="field"><span>学校名称 *</span><input v-model="item.schoolName" /></label><label class="field"><span>学历</span><input v-model="item.degree" placeholder="例如：本科 / 硕士" /></label><DateRangeFields v-model:start-date="item.startDate" v-model:end-date="item.endDate" v-model:is-current="item.isCurrent" /><label class="field"><span>专业</span><input v-model="item.major" /></label><label class="field field--wide"><span>在校经历</span><textarea v-model="item.campusExperience" rows="5" /></label><label class="field field--wide"><span>论文 / 研究课题</span><textarea v-model="item.thesis" rows="4" /></label></div></template></ItemList></section>
 
           </div>
         </div>
-        <AiChat v-else :resume="current" :settings="aiSettings" @apply="applyAiResume" @open-settings="showAiSettings = true" />
-        <p v-if="saveState === 'error'" class="save-error" role="alert">{{ saveError }}</p>
+        <AiChat v-else v-model:materials="aiMaterials" :resume="current" :settings="aiSettings" @apply="applyAiResume" @open-settings="showAiSettings = true" />
       </div>
       <section class="preview-col" aria-label="简历预览">
         <ResumePreview :resume="current" @edit="editSection" />
@@ -531,13 +540,13 @@ onBeforeUnmount(() => {
         <p class="eyebrow">DELETE LOCAL RESUME</p>
         <h2 id="remove-title">删除「{{ pendingRemoval.title }}」？</h2>
         <p id="remove-desc">只删除这份本地简历，BOSS 在线简历不受影响。删除后无法恢复。</p>
-        <p v-if="removeError" class="save-error" role="alert">{{ removeError }}</p>
         <div class="dialog-actions">
           <button class="button button--quiet" type="button" autofocus @click="pendingRemoval = undefined">取消</button>
           <button class="button button--danger-solid" type="button" @click="confirmRemove">删除</button>
         </div>
       </section>
     </div>
+    <ToastHost />
   </main>
 </template>
 

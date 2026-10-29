@@ -1,5 +1,5 @@
 import { createBlankResume, type ResumeFactoryOptions } from "./factories";
-import type { BossRemoteSnapshot, BossResumeDocument, ResumeIndexItem } from "./types";
+import type { BossRemoteSnapshot, BossResumeDocument } from "./types";
 
 /** 简历中可由 BOSS 数据填充的业务字段，不含本地元数据。 */
 export type BossResumeContent = Pick<
@@ -77,17 +77,4 @@ export function refreshResumeFromBossImport(
     remoteSnapshot: structuredClone(result.remoteSnapshot),
     unmappedFields: result.unmappedFields ? structuredClone(result.unmappedFields) : undefined,
   };
-}
-
-/**
- * 已绑定 = 曾从直聘简历导入，可用直聘简历数据刷新。
- * 上传是在直聘简历新增一份简历，不建立绑定，因此不计入。
- */
-export function isBossBoundResume(item: Pick<ResumeIndexItem, "lastBossFetchedAt">): boolean {
-  return Boolean(item.lastBossFetchedAt);
-}
-
-/** 刷新前需要用户确认：上次获取后有本地修改（刷新会丢掉这些修改）。 */
-export function hasLocalChangesSinceFetch(resume: Pick<BossResumeDocument, "syncState">): boolean {
-  return resume.syncState === "local-dirty" || resume.syncState === "upload-failed";
 }

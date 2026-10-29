@@ -100,12 +100,14 @@ function mapWork(raw: Raw, index: number): BossWorkExperience {
 }
 
 function mapProject(raw: Raw, index: number): BossProject {
+  const current = isCurrent(raw);
   return {
     localId: `project-boss-${text(raw.id) ?? index}`,
     projectName: text(raw.name) ?? "",
     role: text(raw.roleName),
     startDate: normalizeMonth(raw.startDateStr) ?? "",
-    endDate: isCurrent(raw) ? undefined : normalizeMonth(raw.endDateStr),
+    endDate: current ? undefined : normalizeMonth(raw.endDateStr),
+    isCurrent: current || undefined,
     description: text(raw.description),
     achievements: text(raw.performance),
   };
@@ -113,6 +115,8 @@ function mapProject(raw: Raw, index: number): BossProject {
 
 function mapEducation(raw: Raw, index: number): BossEducation {
   const code = typeof raw.degree === "number" ? raw.degree : Number(raw.degree);
+  // 教育经历是年份制，直聘用 isToday 表示「至今」；没有这个字段时退回按文本判断。
+  const current = raw.isToday === true || isCurrent(raw);
   return {
     localId: `education-boss-${text(raw.id) ?? index}`,
     schoolName: text(raw.school) ?? "",
@@ -120,7 +124,8 @@ function mapEducation(raw: Raw, index: number): BossEducation {
     major: text(raw.major),
     // 直聘简历教育经历只有年份；本地按 9 月入学、6 月毕业补齐月份。
     startDate: yearMonth(raw.startYear, "09"),
-    endDate: yearMonth(raw.endYear, "06"),
+    endDate: current ? undefined : yearMonth(raw.endYear, "06"),
+    isCurrent: current || undefined,
     campusExperience: text(raw.description),
   };
 }

@@ -1,0 +1,58 @@
+name: Release extension
+
+# 打 tag（v0.3.0 这类）时自动构建并发布浏览器插件包；
+# 也可以在 Actions 页面手动触发，只产出构建结果不发布。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # 打包成可「加载已解压的扩展程序」的压缩包：manifest.json 必须在 zip 根目录
+      - name: Pack
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          cd dist
+          zip -r "../boss-resume-extension-${GITHUB_REF_NAME}.zip" .
+          cd ..
+          ls -lh "boss-resume-extension-${GITHUB_REF_NAME}.zip"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-${{ github.ref_name }}
+          path: |
+            dist
+            boss-resume-extension-*.zip
+          if-no-files-found: warn
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: boss-resume-extension-*.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true
