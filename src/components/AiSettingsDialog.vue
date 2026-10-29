@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { AiError, pingAi } from "../ai/deepseek";
+import { AiError, pingAi } from "../ai/chatClient";
 import { syncAiOriginRule } from "../ai/originRule";
 import { DEFAULT_AI_SETTINGS, ensureHostPermission, normalizeBaseUrl, type AiSettings } from "../ai/settings";
 import { toast } from "../ui/toast";

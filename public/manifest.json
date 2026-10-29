@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "BOSS 简历本地档案",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "在浏览器本地管理 BOSS 在线简历的多个草稿版本。",
   "permissions": ["storage", "tabs", "scripting", "declarativeNetRequestWithHostAccess"],
   "host_permissions": ["https://*.zhipin.com/*", "https://api.deepseek.com/*"],

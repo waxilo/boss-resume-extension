@@ -1,6 +1,6 @@
 import { diffResumes, type ResumeFieldDiff } from "../domain/diff";
 import type { BossResumeDocument } from "../domain/types";
-import { AiError, chatJson, type ChatMessage } from "./deepseek";
+import { chatReply, type ChatMessage } from "./chatClient";
 import { buildMaterialsBlock, type ResumeMaterial } from "./materials";
 import { applyAiResume } from "./resumePatch";
 import type { AiSettings } from "./settings";
@@ -85,8 +85,9 @@ export async function askResumeAssistant(
     ...history.slice(-HISTORY_LIMIT),
     { role: "user", content: input },
   ];
-  const raw = await chatJson(settings, messages, { signal: options.signal });
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new AiError("AI 返回的格式与约定不符，请重试");
+  const { text: rawText, json: raw } = await chatReply(settings, messages, { signal: options.signal });
+  // 纯问答时模型常直接回一段文字而不套 json：当作回复展示，不改简历
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { reply: rawText, changes: [] };
   const { reply, resume: patch } = raw as { reply?: unknown; resume?: unknown };
   const text = typeof reply === "string" && reply.trim() ? reply.trim() : "";
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRaw, watch } from "vue";
-import { AiError } from "../ai/deepseek";
+import { AiError } from "../ai/chatClient";
 import { extractUrls, readLinkMaterial } from "../ai/linkMaterial";
 import { MATERIAL_LIMITS, mergeMaterials, readMaterialFiles, totalMaterialChars, type ResumeMaterial } from "../ai/materials";
 import { askResumeAssistant, summarizeChanges, type AiTurn } from "../ai/resumeAssistant";

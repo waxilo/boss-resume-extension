@@ -94,6 +94,12 @@ describe("askResumeAssistant", () => {
     expect(result).toEqual({ reply: "请提供岗位 JD", changes: [] });
   });
 
+  it("模型只回了一段文字时当作回复展示，不改简历", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ choices: [{ finish_reason: "stop", message: { content: "转全栈建议：\n1. 个人优势补前端技能" } }] })));
+    const result = await askResumeAssistant(settings, sample(), [], "转全栈要改哪些");
+    expect(result).toEqual({ reply: "转全栈建议：\n1. 个人优势补前端技能", changes: [] });
+  });
+
   it("401 转成可读的错误", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 401 })));
     await expect(askResumeAssistant(settings, sample(), [], "hi")).rejects.toThrow("API Key 无效");
