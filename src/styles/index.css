@@ -405,11 +405,11 @@ a.button { text-decoration: none; }
 .dialog-close:hover { color: var(--text); background: #f2f4f7; }
 .dialog-actions { display: flex; flex-wrap: wrap; justify-content: end; gap: 10px; margin-top: 20px; }
 
-/* ---------- 轻提示（toast）：浮在页面之上，不参与布局 ---------- */
+/* ---------- 轻提示（toast）：浮在页面之上，固定在右下角，不参与布局 ---------- */
 .toast-host {
-  position: fixed; z-index: 40; top: calc(var(--header-h) + 14px); right: 22px;
-  display: flex; flex-direction: column; gap: 10px;
-  width: min(400px, calc(100vw - 32px)); max-height: calc(100vh - var(--header-h) - 36px);
+  position: fixed; z-index: 40; bottom: 22px; right: 22px;
+  display: flex; flex-direction: column-reverse; gap: 10px;
+  width: min(400px, calc(100vw - 32px)); max-height: calc(100vh - 44px);
   overflow-y: auto; overscroll-behavior: contain; pointer-events: none;
 }
 .toast {
@@ -427,7 +427,7 @@ a.button { text-decoration: none; }
 .toast__close { flex: none; width: 22px; height: 22px; border: 0; border-radius: 50%; color: var(--muted); background: transparent; font-size: 16px; line-height: 1; }
 .toast__close:hover { color: var(--text); background: #f2f4f7; }
 .toast-enter-active, .toast-leave-active { transition: opacity .18s ease, transform .18s ease; }
-.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateX(12px); }
+.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(12px); }
 .toast-move { transition: transform .18s ease; }
 
 

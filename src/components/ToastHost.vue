@@ -3,7 +3,7 @@ import { onBeforeUnmount, watch } from "vue";
 import { dismissToast, toasts } from "../ui/toast";
 
 /**
- * 提示的展示层：固定在右上角，叠在页面之上，不参与布局。
+ * 提示的展示层：固定在右下角，叠在页面之上，不参与布局。
  * 计时在这里做（而不是在 store 里），这样鼠标悬停时可以暂停倒计时。
  */
 const timers = new Map<number, ReturnType<typeof setTimeout>>();
