@@ -10,6 +10,10 @@ import {
   describeIssue,
   createResumeFromBossImport,
   refreshResumeFromBossImport,
+  ensureSyncBaseline,
+  markContentSynced,
+  reconcileSyncState,
+  splitSkillItems,
   type BossImportReport,
 } from "./domain";
 import { ResumeRepository } from "./repository";
@@ -224,12 +228,23 @@ async function markUploaded(localId: string, cvId: string, complete = true): Pro
   const stored = await repository.get(localId);
   if (!stored) return;
   stored.bossCvId = cvId;
-  if (complete) stored.lastBossUploadedAt = new Date().toISOString();
-  stored.syncState = complete ? "synced" : "local-dirty";
+  if (complete) {
+    stored.lastBossUploadedAt = new Date().toISOString();
+    // 上传成功即把当前内容记为新基线；之后内容没变就不会再显示「本地已修改」。
+    markContentSynced(stored);
+  } else {
+    stored.syncState = "local-dirty";
+  }
   await repository.save(stored);
   if (current.value?.localId === localId) {
     ignoreNextChange = true;
-    current.value = { ...current.value, bossCvId: cvId, lastBossUploadedAt: stored.lastBossUploadedAt, syncState: stored.syncState };
+    current.value = {
+      ...current.value,
+      bossCvId: cvId,
+      lastBossUploadedAt: stored.lastBossUploadedAt,
+      syncState: stored.syncState,
+      syncedContentFingerprint: stored.syncedContentFingerprint,
+    };
   }
   await loadList();
 }
@@ -381,6 +396,8 @@ async function openResume(id: string): Promise<void> {
   // 旧版本没有专业技能和通用模块字段，打开时补齐后再进入编辑器。
   resume.professionalSkills ??= [];
   resume.customModules ??= [];
+  // 旧档案没有同步基线，按当前（已规整的）内容补一条，避免之后的保存误判为修改。
+  ensureSyncBaseline(resume);
   current.value = resume;
   activeSection.value = "profile";
   editorMode.value = "edit";
@@ -390,7 +407,6 @@ async function openResume(id: string): Promise<void> {
   // 等待 deep watch 处理完这次整体替换，再恢复自动保存，避免“打开即视为编辑”。
   await nextTick();
   suspendAutoSave = false;
-  hasUserEdits = false;
   await repository.saveSettings({ lastSelectedResumeId: id });
 }
 
@@ -436,19 +452,17 @@ async function confirmRemove(): Promise<void> {
   }
 }
 
-/** 只有用户真实编辑过才把“已同步”降级为“本地已修改”，单纯打开/离开不改变同步状态。 */
-let hasUserEdits = false;
-
 async function saveNow(): Promise<void> {
   if (!current.value) return;
   if (saveTimer) clearTimeout(saveTimer);
   saveState.value = "saving";
   const document = structuredClone(toRaw(current.value));
   document.updatedAt = new Date().toISOString();
-  if (hasUserEdits && document.syncState === "synced") document.syncState = "local-dirty";
+  document.professionalSkills = splitSkillItems(document.professionalSkills);
+  // 同步状态由内容指纹决定：只有内容和上次与 BOSS 对齐时不同，才会变成「本地已修改」。
+  reconcileSyncState(document);
   try {
     await repository.save(document);
-    hasUserEdits = false;
     if (current.value?.localId === document.localId) {
       ignoreNextChange = true;
       current.value = document;
@@ -467,7 +481,6 @@ function scheduleSave(): void {
     return;
   }
   if (!current.value || suspendAutoSave) return;
-  hasUserEdits = true;
   if (saveTimer) clearTimeout(saveTimer);
   saveState.value = "unsaved";
   saveTimer = setTimeout(() => void saveNow(), 800);

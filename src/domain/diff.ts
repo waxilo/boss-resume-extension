@@ -129,3 +129,28 @@ export function diffResumes(
 
   return differences;
 }
+
+/** 内容指纹涵盖的字段：可编辑内容 + 模块顺序。 */
+const FINGERPRINT_FIELDS: Array<keyof ComparableDocument | "sectionOrder"> = [...DIFF_FIELDS, "sectionOrder"];
+
+/** 对象键排序后再序列化，保证同样的内容永远得到同样的指纹。 */
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.keys(value)
+        .filter((key) => value[key] !== undefined)
+        .sort()
+        .map((key) => [key, canonicalize(value[key])]),
+    );
+  }
+  return value;
+}
+
+/**
+ * 简历内容指纹：只含可编辑内容和模块顺序，忽略本地 ID、时间戳、同步状态与远程快照。
+ * 用来回答「当前内容和上次与 BOSS 对齐时相比，真的变了吗」。
+ */
+export function resumeContentFingerprint(resume: BossResumeDocument): string {
+  return JSON.stringify(FINGERPRINT_FIELDS.map((field) => canonicalize(resume[field])));
+}

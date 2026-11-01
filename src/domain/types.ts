@@ -19,6 +19,8 @@ export interface BossResumeDocument {
   /** 最近一次成功上传到 BOSS（新增一份简历）的时间；上传不改变 BOSS 已有简历。 */
   lastBossUploadedAt?: string;
   syncState: BossResumeSyncState;
+  /** 与 BOSS 对齐时的内容指纹；保存时按它判断是否真的有本地修改。旧档案没有，打开时补。 */
+  syncedContentFingerprint?: string;
   /** 从直聘简历读取时那份简历的 cvId；刷新时按它重新读取。 */
   bossCvId?: string;
   /** 直聘简历的样式模板；上传时沿用，保证拉取后再上传样式不变。复制时保留。 */

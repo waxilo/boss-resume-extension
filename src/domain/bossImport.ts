@@ -1,4 +1,6 @@
 import { createBlankResume, type ResumeFactoryOptions } from "./factories";
+import { splitSkillItems } from "./skills";
+import { markContentSynced } from "./syncState";
 import type { BossRemoteSnapshot, BossResumeDocument } from "./types";
 
 /** 简历中可由 BOSS 数据填充的业务字段，不含本地元数据。 */
@@ -48,7 +50,7 @@ export function createResumeFromBossImport(
   options: ResumeFactoryOptions = {},
 ): BossResumeDocument {
   const base = createBlankResume({ now: result.report.fetchedAt, ...options });
-  return {
+  const document: BossResumeDocument = {
     ...base,
     ...structuredClone(result.content),
     title: result.cvName,
@@ -60,6 +62,9 @@ export function createResumeFromBossImport(
     remoteSnapshot: structuredClone(result.remoteSnapshot),
     unmappedFields: result.unmappedFields ? structuredClone(result.unmappedFields) : undefined,
   };
+  // 与仓库读取时的归一化保持一致，否则指纹在打开后会被判成「内容变了」。
+  document.professionalSkills = splitSkillItems(document.professionalSkills);
+  return markContentSynced(document);
 }
 
 /** 用直聘简历数据刷新已绑定简历的业务字段（只改本地），保留本地 ID、名称、来源和上传记录。 */
@@ -68,7 +73,7 @@ export function refreshResumeFromBossImport(
   result: BossImportResult,
   now: Date | string = new Date(),
 ): BossResumeDocument {
-  return {
+  const document: BossResumeDocument = {
     ...structuredClone(target),
     ...structuredClone(result.content),
     updatedAt: typeof now === "string" ? now : now.toISOString(),
@@ -79,4 +84,6 @@ export function refreshResumeFromBossImport(
     remoteSnapshot: structuredClone(result.remoteSnapshot),
     unmappedFields: result.unmappedFields ? structuredClone(result.unmappedFields) : undefined,
   };
+  document.professionalSkills = splitSkillItems(document.professionalSkills);
+  return markContentSynced(document);
 }

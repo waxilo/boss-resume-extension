@@ -20,7 +20,7 @@ export interface ToastInput {
   lines?: string[];
   /** 右下角的操作链接，通常指向直聘页面。 */
   actions?: ToastAction[];
-  /** 自动关闭的毫秒数；0 表示必须手动关闭。不传时按内容和语气推断。 */
+  /** 自动关闭的毫秒数；0 表示必须手动关闭。默认 3 秒。 */
   timeout?: number;
 }
 
@@ -36,17 +36,14 @@ export interface Toast {
 /** 同时最多显示几条，超出时挤掉最旧的。 */
 const MAX_VISIBLE = 4;
 
+/** 默认 3 秒自动关闭；需要常驻的提示显式传 timeout: 0。 */
+const DEFAULT_TIMEOUT_MS = 3000;
+
 const state = ref<Toast[]>([]);
 let seq = 0;
 
 /** 只读的当前提示列表，供 ToastHost 渲染。 */
 export const toasts = readonly(state);
-
-function defaultTimeout(tone: ToastTone, lines: string[], actions: ToastAction[]): number {
-  // 带链接或内容较长的提示会被人读，交给用户自己关；短提示自动消失。
-  if (actions.length || lines.length > 2) return 0;
-  return tone === "error" ? 8000 : 4500;
-}
 
 /**
  * 弹出一条提示。同标题、同语气的提示只保留一条（原地刷新），
@@ -56,7 +53,7 @@ export function toast(input: ToastInput): number {
   const tone = input.tone ?? "info";
   const lines = (input.lines ?? []).filter((line) => line.trim().length > 0);
   const actions = input.actions ?? [];
-  const timeout = input.timeout ?? defaultTimeout(tone, lines, actions);
+  const timeout = input.timeout ?? DEFAULT_TIMEOUT_MS;
   const duplicate = state.value.findIndex((item) => item.title === input.title && item.tone === tone);
   if (duplicate >= 0) state.value.splice(duplicate, 1);
   const item: Toast = { id: ++seq, title: input.title, tone, lines, actions, timeout };
