@@ -156,25 +156,51 @@ a.button { text-decoration: none; }
 /* ---------- 编辑器 ---------- */
 /*
  * 三段式：菜单 | 表单 | 预览；AI 模式两段：对话 | 预览。各栏独立滚动，预览常驻。
- * 左栏宽度在编辑 / AI 两种模式下保持一致：网格列宽只由 --composer-w 决定，
- * 切换模式时右栏（预览）的宽度与位置完全不变，不会跳动。
+ * 左栏宽度在编辑 / AI 两种模式下保持一致：宽度只由 --composer-w 决定，切换模式不会跳动。
+ * 预览可收起：收起时左栏长满，右栏缩成一条窄边；两个方向都只过渡宽度，不整页重排。
  */
 .editor-view {
   --composer-w: 760px; --nav-w: 216px;
   height: calc(100vh - var(--header-h)); padding: 20px 24px;
-  display: grid; grid-template-columns: var(--composer-w) minmax(0, 1fr); gap: 20px;
+  display: flex; gap: 20px;
 }
 /* position: relative 让条目编辑页（.item-sheet）以 composer 为定位容器，只盖住左侧两栏 */
-.composer { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: var(--radius-lg); }
+.composer {
+  position: relative; flex: 0 0 var(--composer-w); min-width: 0; min-height: 0;
+  display: flex; flex-direction: column; overflow: hidden; border-radius: var(--radius-lg);
+  transition: flex-basis .32s cubic-bezier(.32, .72, 0, 1), flex-grow .32s cubic-bezier(.32, .72, 0, 1), flex-shrink .32s cubic-bezier(.32, .72, 0, 1);
+}
+.editor-view--preview-collapsed .composer { flex: 1 1 0px; }
 .composer-body { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--nav-w) minmax(0, 1fr); gap: 16px; }
 .editor-nav {
   min-height: 0; overflow: auto;
   padding: 20px 14px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow);
 }
 .preview-col {
-  min-width: 0; min-height: 0; overflow: auto; padding: 24px;
+  flex: 1 1 0; min-width: 0; min-height: 0; overflow: hidden;
+  display: flex; flex-direction: column;
   border: 1px solid var(--line); border-radius: var(--radius-lg); background: #eef1f5;
+  transition: flex-basis .32s cubic-bezier(.32, .72, 0, 1), flex-grow .32s cubic-bezier(.32, .72, 0, 1), flex-shrink .32s cubic-bezier(.32, .72, 0, 1);
 }
+.editor-view--preview-collapsed .preview-col { flex: 0 0 44px; }
+.preview-head {
+  flex: none; display: flex; align-items: center; gap: 8px; height: 46px; padding: 0 9px 0 18px;
+  border-bottom: 1px solid var(--line); background: rgba(255, 255, 255, .72);
+  transition: padding .32s cubic-bezier(.32, .72, 0, 1);
+}
+.preview-head__title { flex: 1; min-width: 0; overflow: hidden; color: var(--text-2); font-size: 12px; font-weight: 600; white-space: nowrap; transition: opacity .18s ease; }
+.preview-toggle {
+  flex: none; display: grid; place-items: center; width: 30px; height: 30px; padding: 0;
+  border: 0; border-radius: 8px; color: var(--text-2); background: transparent;
+  transition: background .15s ease, color .15s ease;
+}
+.preview-toggle:hover { color: var(--text); background: rgba(31, 41, 51, .06); }
+.preview-toggle svg { width: 15px; height: 15px; transition: transform .32s cubic-bezier(.32, .72, 0, 1); }
+.preview-col--collapsed .preview-head { padding: 0 7px; justify-content: center; }
+.preview-col--collapsed .preview-head__title { opacity: 0; }
+.preview-col--collapsed .preview-toggle svg { transform: rotate(180deg); }
+.preview-scroll { flex: 1; min-height: 0; overflow: auto; padding: 24px; transition: opacity .22s ease; }
+.preview-col--collapsed .preview-scroll { opacity: 0; pointer-events: none; }
 .preview-col .rp-page { margin: 0 auto; }
 .editor-nav > .eyebrow { padding: 0 10px; }
 .editor-nav h1 { margin: 0 0 18px; padding: 0 10px; font-size: 17px; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }
@@ -444,9 +470,14 @@ a.button { text-decoration: none; }
   .preview-col .rp-page { padding: 36px 36px 40px; }
 }
 @media (max-width: 1180px) { .upload-button__note { display: none; } }
-/* 窄屏放弃并排，改为纵向堆叠：编辑在上，预览在下 */
+/* 窄屏放弃并排，改为纵向堆叠：编辑在上，预览在下。预览始终展开（收起按钮隐藏）。 */
 @media (max-width: 1080px) {
-  .editor-view { height: auto; grid-template-columns: 1fr; padding: 16px; }
+  .editor-view { height: auto; flex-direction: column; padding: 16px; }
+  .composer, .editor-view--preview-collapsed .composer { flex: none; }
+  .preview-col, .editor-view--preview-collapsed .preview-col { flex: none; width: 100%; }
+  .preview-toggle { display: none; }
+  .preview-head { display: none; }
+  .preview-scroll, .preview-col--collapsed .preview-scroll { overflow: visible; padding: 24px; opacity: 1; pointer-events: auto; }
   .composer-body { grid-template-columns: 1fr; }
   .editor-content, .editor-nav, .preview-col { overflow: visible; }
   .editor-view--ai .ai-chat { height: 70vh; flex: none; }

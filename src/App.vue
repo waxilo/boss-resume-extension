@@ -294,8 +294,9 @@ async function saveOnlineSnapshot(payload: { fetchedAt: string; raw: Record<stri
   await saveNow();
 }
 
-/** 编辑页左侧的编辑方式：表单（菜单 + 表单两段）或 AI 对话；右侧预览常驻。 */
+/** 编辑页左侧的编辑方式：表单（菜单 + 表单两段）或 AI 对话；右侧预览可收起，默认展开。 */
 const editorMode = ref<"edit" | "ai">("edit");
+const previewCollapsed = ref(false);
 const aiStore = new AiSettingsStore();
 const aiSettings = ref<AiSettings>({ ...DEFAULT_AI_SETTINGS });
 const showAiSettings = ref(false);
@@ -401,6 +402,7 @@ async function openResume(id: string): Promise<void> {
   current.value = resume;
   activeSection.value = "profile";
   editorMode.value = "edit";
+  previewCollapsed.value = false;
   saveState.value = "saved";
   importedResumeIds.value = [];
   view.value = "editor";
@@ -543,7 +545,7 @@ onBeforeUnmount(() => {
       <div v-else class="empty-state"><span aria-hidden="true">⌁</span><h2>从一张空白页开始</h2><p>创建本地简历后，可以随时编辑和复制不同版本。</p><button class="button button--accent" type="button" @click="createResume">创建空白简历</button></div>
     </section>
 
-    <section v-else-if="current" class="editor-view" :class="`editor-view--${editorMode}`" aria-label="简历编辑器">
+    <section v-else-if="current" class="editor-view" :class="[`editor-view--${editorMode}`, { 'editor-view--preview-collapsed': previewCollapsed }]" aria-label="简历编辑器">
       <!-- 左侧：编辑模式下是「菜单 + 表单」两段，AI 模式下是对话框；右侧预览常驻 -->
       <div class="composer" data-item-sheet-host>
         <div class="mode-switch" role="tablist" aria-label="编辑方式">
@@ -575,8 +577,24 @@ onBeforeUnmount(() => {
         </div>
         <AiChat v-show="editorMode === 'ai'" v-model:materials="aiMaterials" :resume="current" :settings="aiSettings" @apply="applyAiResume" @open-settings="showAiSettings = true" />
       </div>
-      <section class="preview-col" aria-label="简历预览">
-        <ResumePreview :resume="current" @edit="editSection" />
+      <section class="preview-col" :class="{ 'preview-col--collapsed': previewCollapsed }" aria-label="简历预览">
+        <div class="preview-head">
+          <span class="preview-head__title">预览</span>
+          <button
+            class="preview-toggle"
+            type="button"
+            aria-controls="resume-preview"
+            :aria-expanded="!previewCollapsed"
+            :aria-label="previewCollapsed ? '展开预览' : '收起预览'"
+            :title="previewCollapsed ? '展开预览' : '收起预览'"
+            @click="previewCollapsed = !previewCollapsed"
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </button>
+        </div>
+        <div id="resume-preview" class="preview-scroll" :inert="previewCollapsed">
+          <ResumePreview :resume="current" @edit="editSection" />
+        </div>
       </section>
     </section>
 
